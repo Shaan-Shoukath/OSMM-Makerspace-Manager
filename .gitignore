@@ -1,0 +1,26 @@
+# Python / Django
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.sqlite3
+backend/.env
+staticfiles/
+
+# Node / Vite
+node_modules/
+frontend/dist/
+frontend/.env
+
+# tsc -b composite build artifacts (emitted from tsconfig.node.json)
+frontend/vite.config.js
+frontend/vite.config.d.ts
+*.tsbuildinfo
+
+# Codex scratch prompts
+.codex-prompt-*.txt
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

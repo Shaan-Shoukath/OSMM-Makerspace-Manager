@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16
+    container_name: tinkerspace-db
+    environment:
+      POSTGRES_USER: tinker
+      POSTGRES_PASSWORD: tinker
+      POSTGRES_DB: tinkerspace
+    ports:
+      - "5432:5432"
+    volumes:
+      - tinkerspace_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tinker -d tinkerspace"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: tinkerspace-backend
+    environment:
+      SECRET_KEY: ${SECRET_KEY:-dev-insecure-change-me}
+      DEBUG: ${DEBUG:-False}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,backend}
+      DATABASE_URL: ${DATABASE_URL:-postgres://tinker:tinker@db:5432/tinkerspace}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost,http://localhost:5173}
+      HMAC_CLIENT_ID: ${HMAC_CLIENT_ID:-}
+      HMAC_SECRET: ${HMAC_SECRET:-}
+      HMAC_MAX_CLOCK_SKEW_SECONDS: ${HMAC_MAX_CLOCK_SKEW_SECONDS:-300}
+      HMAC_PROTECTED_PATH_PREFIXES: ${HMAC_PROTECTED_PATH_PREFIXES:-/api/public/}
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000"
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+        VITE_HMAC_CLIENT_ID: ${VITE_HMAC_CLIENT_ID:-}
+        VITE_HMAC_SECRET: ${VITE_HMAC_SECRET:-}
+    container_name: tinkerspace-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  tinkerspace_pgdata:
