@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { staffRequest } from "../../lib/api";
@@ -44,6 +44,8 @@ export function ApiClientsPanel({ makerspace }: { makerspace: Makerspace }) {
   const [label, setLabel] = useState("");
   const [origins, setOrigins] = useState("");
   const [issuedSecret, setIssuedSecret] = useState("");
+  const [secretCopied, setSecretCopied] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [settingsForm, setSettingsForm] = useState<ApiSettingsForm>({
     telegram_group_chat_id: "",
     telegram_bot_token: "",
@@ -75,6 +77,11 @@ export function ApiClientsPanel({ makerspace }: { makerspace: Makerspace }) {
       smtp_from_email: settings.data.smtp_from_email ?? "",
     });
   }, [settings.data]);
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    };
+  }, []);
   const create = useMutation({
     mutationFn: () =>
       staffRequest<ApiClient>(`/admin/makerspace/${makerspace.id}/api-clients`, {
@@ -87,6 +94,7 @@ export function ApiClientsPanel({ makerspace }: { makerspace: Makerspace }) {
       }),
     onSuccess: (client) => {
       setIssuedSecret(client.client_secret ?? "");
+      setSecretCopied(false);
       setLabel("");
       queryClient.invalidateQueries({ queryKey: ["api-clients", makerspace.id] });
     },
@@ -125,6 +133,17 @@ export function ApiClientsPanel({ makerspace }: { makerspace: Makerspace }) {
         }),
       }),
   });
+  const copyIssuedSecret = async () => {
+    await navigator.clipboard.writeText(issuedSecret);
+    setSecretCopied(true);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => setSecretCopied(false), 2000);
+  };
+  const dismissIssuedSecret = () => {
+    setIssuedSecret("");
+    setSecretCopied(false);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+  };
 
   return (
     <Panel title="API clients">
@@ -133,105 +152,31 @@ export function ApiClientsPanel({ makerspace }: { makerspace: Makerspace }) {
           <div className="rounded-md border border-line bg-surface p-3">
             <h3 className="font-semibold text-ink">Integration settings</h3>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <input
-                className="desk-input"
-                placeholder="Telegram group chat ID"
-                value={settingsForm.telegram_group_chat_id}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, telegram_group_chat_id: event.target.value })
-                }
-              />
-              <input
-                className="desk-input"
-                placeholder={
-                  settings.data?.telegram_bot_token_set
-                    ? "Telegram bot token set"
-                    : "Telegram bot token"
-                }
-                type="password"
-                value={settingsForm.telegram_bot_token}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, telegram_bot_token: event.target.value })
-                }
-              />
-              <input
-                className="desk-input"
-                placeholder="SMTP host"
-                value={settingsForm.smtp_host}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, smtp_host: event.target.value })
-                }
-              />
-              <input
-                className="desk-input"
-                inputMode="numeric"
-                placeholder="SMTP port"
-                value={settingsForm.smtp_port}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, smtp_port: event.target.value })
-                }
-              />
-              <input
-                className="desk-input"
-                placeholder="SMTP username"
-                value={settingsForm.smtp_username}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, smtp_username: event.target.value })
-                }
-              />
-              <input
-                className="desk-input"
-                placeholder={settings.data?.smtp_password_set ? "SMTP password set" : "SMTP password"}
-                type="password"
-                value={settingsForm.smtp_password}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, smtp_password: event.target.value })
-                }
-              />
-              <input
-                className="desk-input sm:col-span-2"
-                placeholder="SMTP from email"
-                value={settingsForm.smtp_from_email}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, smtp_from_email: event.target.value })
-                }
-              />
+              <input className="desk-input" placeholder="Telegram group chat ID" value={settingsForm.telegram_group_chat_id} onChange={(event) => setSettingsForm({ ...settingsForm, telegram_group_chat_id: event.target.value })} />
+              <input className="desk-input" placeholder={settings.data?.telegram_bot_token_set ? "Telegram bot token set" : "Telegram bot token"} type="password" value={settingsForm.telegram_bot_token} onChange={(event) => setSettingsForm({ ...settingsForm, telegram_bot_token: event.target.value })} />
+              <input className="desk-input" placeholder="SMTP host" value={settingsForm.smtp_host} onChange={(event) => setSettingsForm({ ...settingsForm, smtp_host: event.target.value })} />
+              <input className="desk-input" inputMode="numeric" placeholder="SMTP port" value={settingsForm.smtp_port} onChange={(event) => setSettingsForm({ ...settingsForm, smtp_port: event.target.value })} />
+              <input className="desk-input" placeholder="SMTP username" value={settingsForm.smtp_username} onChange={(event) => setSettingsForm({ ...settingsForm, smtp_username: event.target.value })} />
+              <input className="desk-input" placeholder={settings.data?.smtp_password_set ? "SMTP password set" : "SMTP password"} type="password" value={settingsForm.smtp_password} onChange={(event) => setSettingsForm({ ...settingsForm, smtp_password: event.target.value })} />
+              <input className="desk-input sm:col-span-2" placeholder="SMTP from email" value={settingsForm.smtp_from_email} onChange={(event) => setSettingsForm({ ...settingsForm, smtp_from_email: event.target.value })} />
             </div>
             <label className="mt-3 flex items-center gap-2 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={settingsForm.smtp_use_tls}
-                onChange={(event) =>
-                  setSettingsForm({ ...settingsForm, smtp_use_tls: event.target.checked })
-                }
-              />
+              <input type="checkbox" checked={settingsForm.smtp_use_tls} onChange={(event) => setSettingsForm({ ...settingsForm, smtp_use_tls: event.target.checked })} />
               Use SMTP TLS
             </label>
-            <button
-              className="desk-button-primary mt-3 w-full"
-              disabled={saveSettings.isPending}
-              onClick={() => saveSettings.mutate()}
-            >
+            <button className="desk-button-primary mt-3 w-full" disabled={saveSettings.isPending} onClick={() => saveSettings.mutate()}>
               {saveSettings.isPending ? "Saving..." : "Save integration settings"}
             </button>
-            <button
-              className="desk-button mt-2 w-full"
-              disabled={testTelegram.isPending}
-              onClick={() => testTelegram.mutate()}
-            >
+            <button className="desk-button mt-2 w-full" disabled={testTelegram.isPending} onClick={() => testTelegram.mutate()}>
               {testTelegram.isPending ? "Sending..." : "Send Telegram test alert"}
             </button>
-            {saveSettings.error ? (
-              <p className="mt-2 text-sm text-danger">{saveSettings.error.message}</p>
-            ) : null}
+            {saveSettings.error ? <p className="mt-2 text-sm text-danger">{saveSettings.error.message}</p> : null}
             {testTelegram.data ? (
               <p className="mt-2 text-sm text-muted">
                 Telegram delivered: {testTelegram.data.delivered ? "yes" : "no"}
               </p>
             ) : null}
-            {testTelegram.error ? (
-              <p className="mt-2 text-sm text-danger">{testTelegram.error.message}</p>
-            ) : null}
+            {testTelegram.error ? <p className="mt-2 text-sm text-danger">{testTelegram.error.message}</p> : null}
           </div>
 
           <input
@@ -257,7 +202,18 @@ export function ApiClientsPanel({ makerspace }: { makerspace: Makerspace }) {
           {issuedSecret ? (
             <div className="rounded-md border border-warn/40 bg-warn/10 p-3">
               <p className="text-sm font-semibold text-warn">Server secret shown once</p>
+              <p className="mt-1 text-sm text-ink">
+                Copy this secret now{" \u2014 "}it is shown only once and cannot be retrieved later.
+              </p>
               <p className="mt-2 break-all font-mono text-xs text-ink">{issuedSecret}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="desk-button" onClick={copyIssuedSecret}>
+                  {secretCopied ? "Copied!" : "Copy"}
+                </button>
+                <button className="desk-button" onClick={dismissIssuedSecret}>
+                  Dismiss
+                </button>
+              </div>
             </div>
           ) : null}
         </div>

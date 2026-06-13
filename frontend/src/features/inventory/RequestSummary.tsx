@@ -1,17 +1,18 @@
+import {
+  StatusStepper,
+  statusStageLabel,
+} from "../../components/ui/StatusStepper";
 import type { PublicRequestStatus } from "../../types/inventory";
-
-function formatStatus(status: string): string {
-  return status.replace(/_/g, " ").toLowerCase();
-}
 
 export function RequestSummary({ request }: { request: PublicRequestStatus }) {
   return (
     <div className="rounded-md border border-line bg-surface p-3">
+      <StatusStepper status={request.status} />
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="mt-3">
           <p className="text-xs uppercase tracking-wide text-muted">Status</p>
-          <p className="mt-1 text-base font-semibold capitalize text-ink">
-            {formatStatus(request.status)}
+          <p className="mt-1 text-base font-semibold text-ink">
+            {statusStageLabel(request.status)}
           </p>
         </div>
       </div>

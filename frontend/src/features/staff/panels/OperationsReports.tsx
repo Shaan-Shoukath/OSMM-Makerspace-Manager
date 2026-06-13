@@ -1,30 +1,242 @@
+import { useState } from "react";
+
 import { downloadStaffFile } from "../../../lib/api";
+import {
+  BarChart,
+  DataState,
+  ReportTable,
+  StatCards,
+  chartRows,
+  reportRows,
+  type ReportRows,
+} from "./OperationsReportsParts";
 import { Panel, type Makerspace, useStaffGet } from "./shared";
 
-export function OperationsReports({ makerspace }: { makerspace: Makerspace }) {
-  const summary = useStaffGet<Record<string, number>>(["analytics", makerspace.id], `/admin/makerspace/${makerspace.id}/analytics/summary`);
-  const reports = ["taken-items", "active-loans", "returns", "damaged-missing"];
+type Summary = {
+  products: number;
+  assets: number;
+  active_loans: number;
+  available_quantity: number;
+  issued_quantity: number;
+  damaged_quantity: number;
+  missing_quantity: number;
+};
+
+type PrintingReport = {
+  totals: Record<string, number>;
+  printer_hours: {
+    printer_id: number;
+    printer_name: string;
+    completed_requests: number;
+    hours: number;
+    makerspace_id?: number;
+  }[];
+  filament_used: {
+    spool_id: number;
+    material: string;
+    color: string;
+    grams_used: number;
+    remaining_grams: number;
+    makerspace_id?: number;
+  }[];
+  total_grams_used: number;
+  filament_estimated_by_period: {
+    by_month: { period: string; grams: number }[];
+    by_day: { period: string; grams: number }[];
+    by_hour: { period: string; grams: number }[];
+  };
+};
+
+type PeriodKey = "month" | "day" | "hour";
+
+const exportReports = ["taken-items", "active-loans", "returns", "damaged-lost"] as const;
+const periods: { key: PeriodKey; label: string; dataKey: keyof PrintingReport["filament_estimated_by_period"] }[] = [
+  { key: "month", label: "Month", dataKey: "by_month" },
+  { key: "day", label: "Day", dataKey: "by_day" },
+  { key: "hour", label: "Hour", dataKey: "by_hour" },
+];
+
+export function OperationsReports({ makerspace, isSuperadmin }: { makerspace: Makerspace; isSuperadmin: boolean }) {
+  const [allMakerspaces, setAllMakerspaces] = useState(false);
+  const [period, setPeriod] = useState<PeriodKey>("month");
+  const aggregate = isSuperadmin && allMakerspaces;
+  const scopeKey = aggregate ? "all" : makerspace.id;
+  const analyticsBase = aggregate ? "/admin/analytics" : `/admin/makerspace/${makerspace.id}/analytics`;
+  const reportsBase = aggregate ? "/admin/reports" : `/admin/makerspace/${makerspace.id}/reports`;
+  const printingPath = aggregate ? "/admin/printing/reports" : `/admin/makerspace/${makerspace.id}/printing/reports`;
+
+  const summary = useStaffGet<Summary>(["operations-report", "summary", scopeKey], `${analyticsBase}/summary`);
+  const mostLent = useStaffGet<ReportRows>(["operations-report", "most-lent", scopeKey], `${analyticsBase}/most-lent`);
+  const topBorrowers = useStaffGet<ReportRows>(["operations-report", "top-borrowers", scopeKey], `${analyticsBase}/top-borrowers`);
+  const damagedLost = useStaffGet<ReportRows>(["operations-report", "damaged-lost", scopeKey], `${analyticsBase}/damaged-lost`);
+  const recentlyAdded = useStaffGet<ReportRows>(["operations-report", "recently-added", scopeKey], `${analyticsBase}/recently-added`);
+  const printing = useStaffGet<PrintingReport>(["operations-report", "printing", scopeKey], printingPath);
+
+  const activePeriod = periods.find((item) => item.key === period) ?? periods[0];
+  const filamentRows = printing.data?.filament_estimated_by_period[activePeriod.dataKey] ?? [];
+  const scopeLabel = aggregate ? "all makerspaces" : makerspace.name;
+
+  function exportReport(report: string, format: "csv" | "xlsx") {
+    downloadStaffFile(`${reportsBase}/${report}/export?format=${format}`, `${aggregate ? "all-makerspaces-" : ""}${report}.${format}`);
+  }
+
   return (
-    <Panel title="Reports">
-      <div className="grid gap-3 sm:grid-cols-4">
-        {Object.entries(summary.data ?? {}).map(([key, value]) => (
-          <div key={key} className="rounded-md border border-line bg-surface p-3">
-            <p className="text-2xl font-bold text-ink">{value}</p>
-            <p className="text-xs text-muted">{key.replace(/_/g, " ")}</p>
+    <div className="space-y-4">
+      <Panel title="Reports">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-ink">Operations reporting for {scopeLabel}</p>
+            <p className="text-xs text-muted">Inventory movement, borrower activity, exceptions, and print usage.</p>
           </div>
-        ))}
+          {isSuperadmin ? (
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-current"
+                checked={allMakerspaces}
+                onChange={(event) => setAllMakerspaces(event.target.checked)}
+              />
+              All makerspaces
+            </label>
+          ) : null}
+        </div>
+        <DataState loading={summary.isLoading} error={summary.error} empty={!summary.data}>
+          <StatCards
+            stats={[
+              ["Products", summary.data?.products],
+              ["Assets", summary.data?.assets],
+              ["Active loans", summary.data?.active_loans],
+              ["Available", summary.data?.available_quantity],
+              ["Issued", summary.data?.issued_quantity],
+              ["Damaged", summary.data?.damaged_quantity],
+              ["Missing", summary.data?.missing_quantity],
+            ]}
+          />
+        </DataState>
+      </Panel>
+
+      <Panel title="Exports">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {exportReports.map((report) => (
+            <div key={report} className="rounded-md border border-line bg-bg p-3">
+              <p className="text-sm font-semibold capitalize text-ink">{report.replace(/-/g, " ")}</p>
+              <div className="mt-3 flex gap-2">
+                <button className="desk-button" type="button" onClick={() => exportReport(report, "csv")}>
+                  CSV
+                </button>
+                <button className="desk-button" type="button" onClick={() => exportReport(report, "xlsx")}>
+                  XLSX
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Most lent">
+          <DataState loading={mostLent.isLoading} error={mostLent.error} empty={!reportRows(mostLent.data).length}>
+            <BarChart rows={chartRows(mostLent.data, "product_name", "times_lent")} valueLabel="loans" />
+            <ReportTable data={mostLent.data} />
+          </DataState>
+        </Panel>
+
+        <Panel title="Top borrowers">
+          <DataState loading={topBorrowers.isLoading} error={topBorrowers.error} empty={!reportRows(topBorrowers.data).length}>
+            <BarChart rows={chartRows(topBorrowers.data, "holder", "requests")} valueLabel="requests" />
+            <ReportTable data={topBorrowers.data} />
+          </DataState>
+        </Panel>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {reports.map((report) => (
-          <button
-            key={report}
-            className="desk-button"
-            onClick={() => downloadStaffFile(`/admin/makerspace/${makerspace.id}/reports/${report}/export?format=csv`, `${report}.csv`)}
-          >
-            {report} CSV
-          </button>
-        ))}
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Panel title="Damaged / lost">
+          <DataState loading={damagedLost.isLoading} error={damagedLost.error} empty={!reportRows(damagedLost.data).length}>
+            <ReportTable data={damagedLost.data} />
+          </DataState>
+        </Panel>
+
+        <Panel title="Recently added">
+          <DataState loading={recentlyAdded.isLoading} error={recentlyAdded.error} empty={!reportRows(recentlyAdded.data).length}>
+            <ReportTable data={recentlyAdded.data} />
+          </DataState>
+        </Panel>
       </div>
-    </Panel>
+
+      <Panel title="3D printing">
+        <DataState loading={printing.isLoading} error={printing.error} empty={!printing.data}>
+          <div className="space-y-5">
+            <StatCards
+              stats={[
+                ["Total requests", printing.data?.totals.total_requests],
+                ["Completed", printing.data?.totals.completed],
+                ["Printing", printing.data?.totals.printing],
+                ["Pending", printing.data?.totals.pending],
+                ["Accepted", printing.data?.totals.accepted],
+                ["Failed", printing.data?.totals.failed],
+                ["Rejected", printing.data?.totals.rejected],
+                ["Spool grams used", printing.data?.total_grams_used],
+              ]}
+            />
+
+            <div>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-ink">Estimated filament</h3>
+                <div className="flex rounded-md border border-line bg-bg p-1">
+                  {periods.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`rounded px-3 py-1 text-xs font-semibold ${period === item.key ? "bg-surface text-accent" : "text-muted"}`}
+                      onClick={() => setPeriod(item.key)}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <BarChart rows={filamentRows.map((row) => ({ label: row.period, value: row.grams }))} valueLabel="g" />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-ink">Printer hours</h3>
+                <ReportTable
+                  data={{
+                    rows: [
+                      aggregate
+                        ? ["makerspace_id", "printer", "completed_requests", "hours"]
+                        : ["printer", "completed_requests", "hours"],
+                      ...(printing.data?.printer_hours ?? []).map((row) =>
+                        aggregate
+                          ? [row.makerspace_id ?? "", row.printer_name, row.completed_requests, row.hours]
+                          : [row.printer_name, row.completed_requests, row.hours],
+                      ),
+                    ],
+                  }}
+                />
+              </div>
+              <div>
+                <h3 className="mb-2 text-sm font-semibold text-ink">Filament used</h3>
+                <ReportTable
+                  data={{
+                    rows: [
+                      aggregate
+                        ? ["makerspace_id", "material", "color", "grams_used", "remaining_grams"]
+                        : ["material", "color", "grams_used", "remaining_grams"],
+                      ...(printing.data?.filament_used ?? []).map((row) =>
+                        aggregate
+                          ? [row.makerspace_id ?? "", row.material, row.color, row.grams_used, row.remaining_grams]
+                          : [row.material, row.color, row.grams_used, row.remaining_grams],
+                      ),
+                    ],
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </DataState>
+      </Panel>
+    </div>
   );
 }

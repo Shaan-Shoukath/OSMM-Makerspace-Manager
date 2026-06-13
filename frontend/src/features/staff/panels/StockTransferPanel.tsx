@@ -1,50 +1,305 @@
-import { useState } from "react";
+import type React from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { staffRequest } from "../../../lib/api";
-import { JsonRows, Panel, type Makerspace, type Product, useStaffGet } from "./shared";
+import { Panel, type Makerspace, type Product, useStaffGet } from "./shared";
 
-type Container = {
+type ListResponse<T> = { count?: number; results: T[] };
+type Container = { id: number; code?: string; label: string; location?: string };
+type TransferLine = { id: number; product: number | null; asset: number | null; quantity: number };
+type Transfer = {
   id: number;
-  label: string;
-  location: string;
+  makerspace: number;
+  source_container: number | null;
+  destination_container: number | null;
+  source_makerspace: number | null;
+  destination_makerspace: number | null;
+  reason: string;
+  status: string;
+  created_at: string;
+  lines: TransferLine[];
 };
+type LineDraft = { key: number; productId: string; quantity: string };
 
-export function StockTransferPanel({ makerspace }: { makerspace: Makerspace }) {
+export function StockTransferPanel({
+  makerspace,
+  makerspaces,
+  isSuperadmin,
+}: {
+  makerspace: Makerspace;
+  makerspaces: Makerspace[];
+  isSuperadmin: boolean;
+}) {
   const queryClient = useQueryClient();
-  const products = useStaffGet<{ results: Product[] }>(["inventory", makerspace.id], `/admin/makerspace/${makerspace.id}/inventory`);
-  const transfers = useStaffGet<{ results: unknown[] }>(["transfers", makerspace.id], `/admin/makerspace/${makerspace.id}/stock-transfers`);
-  const containers = useStaffGet<{ results: Container[] }>(["containers", makerspace.id], `/admin/makerspace/${makerspace.id}/containers`);
-  const [productId, setProductId] = useState("");
-  const [destinationId, setDestinationId] = useState("");
-  const [reason, setReason] = useState("Operational transfer");
+  const spaceOptions = makerspaces.length ? makerspaces : [makerspace];
+  const [sourceMakerspaceId, setSourceMakerspaceId] = useState(makerspace.id);
+  const [destinationMakerspaceId, setDestinationMakerspaceId] = useState(makerspace.id);
+  const [sourceContainerId, setSourceContainerId] = useState("");
+  const [destinationContainerId, setDestinationContainerId] = useState("");
+  const [reason, setReason] = useState("");
+  const [lineRows, setLineRows] = useState<LineDraft[]>([{ key: 1, productId: "", quantity: "1" }]);
+  const [nextLineKey, setNextLineKey] = useState(2);
+  const [validationError, setValidationError] = useState("");
+
+  useEffect(() => {
+    setSourceMakerspaceId(makerspace.id);
+    setDestinationMakerspaceId(makerspace.id);
+    setSourceContainerId("");
+    setDestinationContainerId("");
+    setLineRows([{ key: 1, productId: "", quantity: "1" }]);
+    setNextLineKey(2);
+    setValidationError("");
+  }, [makerspace.id]);
+
+  const products = useStaffGet<ListResponse<Product>>(
+    ["inventory", sourceMakerspaceId],
+    `/admin/makerspace/${sourceMakerspaceId}/inventory`,
+    isSuperadmin,
+  );
+  const transfers = useStaffGet<ListResponse<Transfer>>(
+    ["transfers", sourceMakerspaceId],
+    `/admin/makerspace/${sourceMakerspaceId}/stock-transfers`,
+  );
+  const sourceContainers = useStaffGet<ListResponse<Container>>(
+    ["containers", sourceMakerspaceId],
+    `/admin/makerspace/${sourceMakerspaceId}/containers`,
+    isSuperadmin,
+  );
+  const destinationContainers = useStaffGet<ListResponse<Container>>(
+    ["containers", destinationMakerspaceId],
+    `/admin/makerspace/${destinationMakerspaceId}/containers`,
+    isSuperadmin,
+  );
+
+  const makerspaceNames = useMemo(
+    () => new Map(spaceOptions.map((space) => [space.id, space.name])),
+    [spaceOptions],
+  );
+  const sourceContainerNames = useMemo(
+    () => new Map((sourceContainers.data?.results ?? []).map((box) => [box.id, labelForContainer(box)])),
+    [sourceContainers.data?.results],
+  );
+  const destinationContainerNames = useMemo(
+    () => new Map((destinationContainers.data?.results ?? []).map((box) => [box.id, labelForContainer(box)])),
+    [destinationContainers.data?.results],
+  );
+
   const create = useMutation({
     mutationFn: () =>
-      staffRequest(`/admin/makerspace/${makerspace.id}/stock-transfers`, {
+      staffRequest(`/admin/makerspace/${sourceMakerspaceId}/stock-transfers`, {
         method: "POST",
         body: JSON.stringify({
-          destination_container_id: destinationId ? Number(destinationId) : null,
-          reason,
-          lines: [{ product_id: Number(productId), quantity: 1 }],
+          source_container_id: sourceContainerId ? Number(sourceContainerId) : null,
+          destination_container_id: destinationContainerId ? Number(destinationContainerId) : null,
+          destination_makerspace_id:
+            destinationMakerspaceId !== sourceMakerspaceId ? destinationMakerspaceId : null,
+          reason: reason.trim(),
+          lines: lineRows.map((line) => ({
+            product_id: Number(line.productId),
+            quantity: Number(line.quantity),
+          })),
         }),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["transfers", makerspace.id] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transfers", sourceMakerspaceId] });
+      queryClient.invalidateQueries({ queryKey: ["inventory", sourceMakerspaceId] });
+      setSourceContainerId("");
+      setDestinationContainerId("");
+      setReason("");
+      setLineRows([{ key: 1, productId: "", quantity: "1" }]);
+      setNextLineKey(2);
+      setValidationError("");
+    },
   });
+
+  const changeSource = (nextId: number) => {
+    setSourceMakerspaceId(nextId);
+    setDestinationMakerspaceId(nextId);
+    setSourceContainerId("");
+    setDestinationContainerId("");
+    setLineRows([{ key: 1, productId: "", quantity: "1" }]);
+    setNextLineKey(2);
+    setValidationError("");
+  };
+
+  const addLine = () => {
+    setLineRows((rows) => [...rows, { key: nextLineKey, productId: "", quantity: "1" }]);
+    setNextLineKey((key) => key + 1);
+  };
+
+  const updateLine = (key: number, patch: Partial<LineDraft>) => {
+    setLineRows((rows) => rows.map((line) => (line.key === key ? { ...line, ...patch } : line)));
+  };
+
+  const removeLine = (key: number) => {
+    setLineRows((rows) => rows.filter((line) => line.key !== key));
+  };
+
+  const submit = () => {
+    const invalidQuantity = lineRows.some((line) => !Number.isInteger(Number(line.quantity)) || Number(line.quantity) < 1);
+    if (!reason.trim()) setValidationError("Reason is required.");
+    else if (!lineRows.length) setValidationError("Add at least one transfer line.");
+    else if (lineRows.some((line) => !line.productId)) setValidationError("Choose a product for every line.");
+    else if (invalidQuantity) setValidationError("Quantities must be whole numbers of at least 1.");
+    else {
+      setValidationError("");
+      create.mutate();
+    }
+  };
+
   return (
     <Panel title="Stock transfers">
-      <div className="grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
-        <select className="desk-input" value={productId} onChange={(event) => setProductId(event.target.value)}>
-          <option value="">Product</option>
-          {products.data?.results?.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-        </select>
-        <select className="desk-input" value={destinationId} onChange={(event) => setDestinationId(event.target.value)}>
-          <option value="">Destination</option>
-          {containers.data?.results?.map((container) => <option key={container.id} value={container.id}>{container.label}</option>)}
-        </select>
-        <input className="desk-input" value={reason} onChange={(event) => setReason(event.target.value)} />
-        <button disabled={!productId || create.isPending} onClick={() => create.mutate()}>Create</button>
+      <div className="grid gap-4">
+        {!isSuperadmin ? (
+          <p className="rounded-md border border-line bg-surface px-3 py-2 text-sm text-muted">
+            Transfers are managed by a Super Admin. This view is read-only.
+          </p>
+        ) : (
+          <form
+            className="rounded-md border border-line bg-surface p-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submit();
+            }}
+          >
+            <div className="grid gap-3 lg:grid-cols-2">
+              <Field label="Source makerspace">
+                <select className="desk-input w-full" value={sourceMakerspaceId} onChange={(event) => changeSource(Number(event.target.value))}>
+                  {spaceOptions.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Destination makerspace">
+                <select className="desk-input w-full" value={destinationMakerspaceId} onChange={(event) => { setDestinationMakerspaceId(Number(event.target.value)); setDestinationContainerId(""); }}>
+                  {spaceOptions.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Source container">
+                <select className="desk-input w-full" value={sourceContainerId} disabled={sourceContainers.isLoading} onChange={(event) => setSourceContainerId(event.target.value)}>
+                  <option value="">Any source container</option>
+                  {sourceContainers.data?.results?.map((box) => <option key={box.id} value={box.id}>{labelForContainer(box)}</option>)}
+                </select>
+              </Field>
+              <Field label="Destination container">
+                <select className="desk-input w-full" value={destinationContainerId} disabled={destinationContainers.isLoading} onChange={(event) => setDestinationContainerId(event.target.value)}>
+                  <option value="">No destination container</option>
+                  {destinationContainers.data?.results?.map((box) => <option key={box.id} value={box.id}>{labelForContainer(box)}</option>)}
+                </select>
+              </Field>
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-ink">Transfer lines</h3>
+                <button className="desk-button" type="button" onClick={addLine}>Add line</button>
+              </div>
+              <div className="grid gap-2">
+                {lineRows.map((line) => (
+                  <div key={line.key} className="grid gap-2 md:grid-cols-[1fr_120px_auto]">
+                    <select className="desk-input" value={line.productId} disabled={products.isLoading} onChange={(event) => updateLine(line.key, { productId: event.target.value })}>
+                      <option value="">Product</option>
+                      {products.data?.results?.map((product) => <option key={product.id} value={product.id}>{product.name} ({product.available_quantity} available)</option>)}
+                    </select>
+                    <input className="desk-input" min={1} inputMode="numeric" type="number" value={line.quantity} onChange={(event) => updateLine(line.key, { quantity: event.target.value })} />
+                    <button className="desk-button" type="button" onClick={() => removeLine(line.key)}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <Field label="Reason" className="mt-4">
+              <input className="desk-input w-full" value={reason} placeholder="Why is this stock moving?" onChange={(event) => setReason(event.target.value)} />
+            </Field>
+            {validationError ? <ErrorText text={validationError} /> : null}
+            {create.isError ? <ErrorText text={create.error.message} /> : null}
+            {products.isError ? <ErrorText text={products.error.message} /> : null}
+            {sourceContainers.isError ? <ErrorText text={sourceContainers.error.message} /> : null}
+            {destinationContainers.isError ? <ErrorText text={destinationContainers.error.message} /> : null}
+            <button className="desk-button-primary mt-4" type="submit" disabled={create.isPending}>
+              {create.isPending ? "Creating..." : "Create transfer"}
+            </button>
+          </form>
+        )}
+
+        <TransferTable
+          transfers={transfers.data?.results ?? []}
+          loading={transfers.isLoading}
+          error={transfers.error?.message}
+          makerspaceNames={makerspaceNames}
+          sourceContainerNames={sourceContainerNames}
+          destinationContainerNames={destinationContainerNames}
+        />
       </div>
-      <JsonRows data={transfers.data?.results ?? []} />
     </Panel>
   );
+}
+
+function TransferTable({
+  transfers,
+  loading,
+  error,
+  makerspaceNames,
+  sourceContainerNames,
+  destinationContainerNames,
+}: {
+  transfers: Transfer[];
+  loading: boolean;
+  error?: string;
+  makerspaceNames: Map<number, string>;
+  sourceContainerNames: Map<number, string>;
+  destinationContainerNames: Map<number, string>;
+}) {
+  if (loading) return <p className="text-sm text-muted">Loading transfers...</p>;
+  if (error) return <ErrorText text={error} />;
+  if (!transfers.length) return <p className="text-sm text-muted">No stock transfers recorded.</p>;
+  return (
+    <div className="overflow-x-auto rounded-md border border-line">
+      <table className="min-w-full divide-y divide-line text-left text-sm">
+        <thead className="bg-surface text-xs uppercase tracking-wide text-muted">
+          <tr>
+            <th className="px-3 py-2">ID</th>
+            <th className="px-3 py-2">Source</th>
+            <th className="px-3 py-2">Destination</th>
+            <th className="px-3 py-2">Reason</th>
+            <th className="px-3 py-2">Created</th>
+            <th className="px-3 py-2">Lines</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line bg-bg text-ink">
+          {transfers.map((transfer) => (
+            <tr key={transfer.id}>
+              <td className="whitespace-nowrap px-3 py-2 font-medium">#{transfer.id}</td>
+              <td className="px-3 py-2">{endpointLabel(transfer.source_makerspace ?? transfer.makerspace, transfer.source_container, makerspaceNames, sourceContainerNames)}</td>
+              <td className="px-3 py-2">{endpointLabel(transfer.destination_makerspace ?? transfer.makerspace, transfer.destination_container, makerspaceNames, destinationContainerNames)}</td>
+              <td className="min-w-48 px-3 py-2 text-muted">{transfer.reason}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-muted">{formatDate(transfer.created_at)}</td>
+              <td className="whitespace-nowrap px-3 py-2">{transfer.lines.length}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function Field({ children, className = "", label }: { children: React.ReactNode; className?: string; label: string }) {
+  return <label className={`block text-sm font-semibold text-ink ${className}`}><span className="mb-1 block">{label}</span>{children}</label>;
+}
+
+function ErrorText({ text }: { text: string }) {
+  return <p className="mt-2 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">{text}</p>;
+}
+
+function labelForContainer(container: Container) {
+  return [container.code, container.label, container.location].filter(Boolean).join(" - ");
+}
+
+function endpointLabel(spaceId: number, containerId: number | null, spaceNames: Map<number, string>, containerNames: Map<number, string>) {
+  const space = spaceNames.get(spaceId) ?? `Makerspace #${spaceId}`;
+  return containerId ? `${space} / ${containerNames.get(containerId) ?? `Container #${containerId}`}` : space;
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }

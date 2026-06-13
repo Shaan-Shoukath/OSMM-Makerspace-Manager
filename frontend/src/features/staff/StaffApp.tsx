@@ -5,11 +5,13 @@ import { clearAccessToken, setAccessToken, staffRequest } from "../../lib/api";
 import { ThemeToggle } from "../../components/ThemeToggle";
 import { ApiClientsPanel } from "./ApiClientsPanel";
 import { DirectLoans } from "./DirectLoans";
+import { ChangePasswordGate } from "./ChangePasswordGate";
 import {
   AuditLog,
   BulkImport,
   Categories,
   Inventory,
+  Ledger,
   OperationsReports,
   Panel,
   PrintingPanel,
@@ -25,6 +27,8 @@ import {
 type AuthUser = {
   username: string;
   role: string;
+  is_superuser: boolean;
+  must_change_password: boolean;
   makerspaces: { id: number; slug: string; role: string }[];
 };
 
@@ -66,6 +70,25 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
     );
   }
 
+  // Force a password rotation before the console becomes usable. The backend
+  // surfaces must_change_password (true for the default super123 seed); the
+  // change-password endpoint clears it, after which we drop into the console.
+  if (user.must_change_password) {
+    return (
+      <ChangePasswordGate
+        username={user.username}
+        onChanged={() => setUser({ ...user, must_change_password: false })}
+        onSignOut={() => {
+          clearAccessToken();
+          setUser(null);
+          queryClient.clear();
+        }}
+      />
+    );
+  }
+
+  const isSuperadmin = user.is_superuser;
+
   return (
     <main className="desk-shell grid lg:grid-cols-[260px_1fr]">
       <aside className="border-b border-line bg-panel lg:min-h-screen lg:border-b-0 lg:border-r">
@@ -75,7 +98,7 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
           </span>
           <div>
             <p className="text-sm font-semibold text-ink">Makerspace Manager</p>
-            <p className="text-xs text-muted">{guestOnly ? "Guest admin" : "Space Manager"}</p>
+            <p className="text-xs text-muted">{guestOnly ? "Guest admin" : isSuperadmin ? "Super Admin" : "Space Manager"}</p>
           </div>
         </div>
         <div className="p-4">
@@ -91,7 +114,7 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
             ))}
           </select>
           <nav className="mt-4 grid gap-1">
-            {["queues", "direct", "inventory", "categories", "printing", "transfers", "stocktake", "reports", "bulk", "qr", "api", "users", "audit"].map((item) => (
+            {["queues", "direct", "inventory", "categories", "printing", "transfers", "stocktake", "ledger", "reports", "bulk", "qr", "api", "users", "audit"].map((item) => (
               <button
                 key={item}
                 className={`rounded-md px-3 py-2 text-left text-sm font-medium transition ${
@@ -153,13 +176,20 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
             <PrintingPanel makerspace={activeMakerspace} />
           ) : null}
           {activeMakerspace && tab === "transfers" ? (
-            <StockTransferPanel makerspace={activeMakerspace} />
+            <StockTransferPanel
+              makerspace={activeMakerspace}
+              makerspaces={makerspaces.data ?? []}
+              isSuperadmin={isSuperadmin}
+            />
           ) : null}
           {activeMakerspace && tab === "stocktake" ? (
             <StocktakePanel makerspace={activeMakerspace} />
           ) : null}
+          {activeMakerspace && tab === "ledger" ? (
+            <Ledger makerspace={activeMakerspace} isSuperadmin={isSuperadmin} />
+          ) : null}
           {activeMakerspace && tab === "reports" ? (
-            <OperationsReports makerspace={activeMakerspace} />
+            <OperationsReports makerspace={activeMakerspace} isSuperadmin={isSuperadmin} />
           ) : null}
           {activeMakerspace && tab === "direct" ? (
             <DirectLoans makerspace={activeMakerspace} />
@@ -167,7 +197,9 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
           {activeMakerspace && tab === "bulk" ? <BulkImport makerspace={activeMakerspace} /> : null}
           {activeMakerspace && tab === "qr" ? <QrTools makerspace={activeMakerspace} /> : null}
           {activeMakerspace && tab === "api" ? <ApiClientsPanel makerspace={activeMakerspace} /> : null}
-          {activeMakerspace && tab === "users" ? <Users /> : null}
+          {activeMakerspace && tab === "users" ? (
+            <Users makerspaces={makerspaces.data ?? []} isSuperadmin={isSuperadmin} />
+          ) : null}
           {activeMakerspace && tab === "audit" ? <AuditLog /> : null}
         </div>
       </section>
