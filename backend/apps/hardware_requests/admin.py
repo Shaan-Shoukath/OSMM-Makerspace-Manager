@@ -1,16 +1,34 @@
 from django.contrib import admin
+from django.contrib import messages
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
+from django.template.response import TemplateResponse
 from unfold.admin import ModelAdmin, TabularInline
 
-from apps.accounts import rbac
-from apps.accounts.models import User
+from apps.hardware_requests.handover_workflow import assign_box
 from apps.hardware_requests.models import (
     HardwareEmailTemplate,
     HardwareRequest,
     HardwareRequestItem,
 )
-from apps.makerspaces.models import Makerspace
+from apps.hardware_requests.request_workflow import accept_request, reject_request
+from apps.hardware_requests.workflow_errors import (
+    BoxUnavailable,
+    BoxValidationError,
+    InvalidTransition,
+    RequestValidationError,
+    RequesterBlocked,
+)
+from apps.inventory.availability import InsufficientStock
+from config.admin_access import SuperuserOnlyModelAdmin
 
-MANAGER_ROLES = (User.Role.SUPERADMIN, User.Role.SPACE_MANAGER)
+WORKFLOW_EXCEPTIONS = (
+    InvalidTransition,
+    RequestValidationError,
+    RequesterBlocked,
+    BoxUnavailable,
+    BoxValidationError,
+    InsufficientStock,
+)
 
 
 class HardwareRequestItemInline(TabularInline):
@@ -33,7 +51,8 @@ class HardwareRequestItemInline(TabularInline):
 
 
 @admin.register(HardwareRequest)
-class HardwareRequestAdmin(ModelAdmin):
+class HardwareRequestAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
+    actions = ["accept_selected", "reject_selected", "assign_box_selected"]
     list_display = (
         "id",
         "status",
@@ -72,51 +91,132 @@ class HardwareRequestAdmin(ModelAdmin):
     fields = readonly_fields
     inlines = [HardwareRequestItemInline]
 
-    def has_module_permission(self, request):
-        user = getattr(request, "user", None)
-        return bool(
-            user
-            and user.is_authenticated
-            and user.is_active
-            and user.access_status == User.AccessStatus.ACTIVE
-            and (
-                user.is_superuser
-                or user.role in MANAGER_ROLES
-                or bool(rbac.makerspaces_for_action(user, rbac.Action.ACCEPT_REQUEST))
-            )
-        )
-
-    def has_view_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def has_change_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
+    # Requests are created by the public submit flow and mutated only through the
+    # workflow services (the actions below). Direct add hits required readonly fields
+    # and direct delete bypasses reservation/audit/notification cleanup.
     def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
 
-    def get_queryset(self, request):
-        return rbac.scope_by_action(
-            request.user,
-            rbac.Action.ACCEPT_REQUEST,
-            super()
-            .get_queryset(request)
-            .select_related(
-                "makerspace",
-                "requester",
-                "accepted_by",
-                "assigned_box",
-                "issued_by",
-                "closed_by",
-            ),
-        )
+    @admin.action(description="Accept selected requests")
+    def accept_selected(self, request, queryset):
+        success_count = 0
+        for hardware_request in queryset:
+            try:
+                accept_request(request.user, hardware_request)
+            except WORKFLOW_EXCEPTIONS as exc:
+                self.message_user(
+                    request,
+                    f"{hardware_request.pk}: {exc}",
+                    level=messages.ERROR,
+                )
+            else:
+                success_count += 1
+
+        if success_count:
+            self.message_user(
+                request,
+                f"Accepted {success_count} hardware request(s).",
+                level=messages.SUCCESS,
+            )
+
+    @admin.action(description="Reject selected requests (with reason)")
+    def reject_selected(self, request, queryset):
+        if "apply" not in request.POST:
+            return self._intermediate_action_response(
+                request,
+                queryset,
+                "admin/hardware_requests/reject_action.html",
+                "Reject selected hardware requests",
+                "reject_selected",
+            )
+
+        reason = request.POST.get("reason", "").strip()
+        if not reason:
+            self.message_user(
+                request,
+                "Rejection reason is required.",
+                level=messages.ERROR,
+            )
+            return None
+
+        success_count = 0
+        for hardware_request in queryset:
+            try:
+                reject_request(request.user, hardware_request, reason)
+            except WORKFLOW_EXCEPTIONS as exc:
+                self.message_user(
+                    request,
+                    f"{hardware_request.pk}: {exc}",
+                    level=messages.ERROR,
+                )
+            else:
+                success_count += 1
+
+        if success_count:
+            self.message_user(
+                request,
+                f"Rejected {success_count} hardware request(s).",
+                level=messages.SUCCESS,
+            )
+        return None
+
+    @admin.action(description="Assign box to selected requests")
+    def assign_box_selected(self, request, queryset):
+        if "apply" not in request.POST:
+            return self._intermediate_action_response(
+                request,
+                queryset,
+                "admin/hardware_requests/assign_box_action.html",
+                "Assign boxes to selected hardware requests",
+                "assign_box_selected",
+            )
+
+        success_count = 0
+        for hardware_request in queryset:
+            box_code = request.POST.get(f"box_code_{hardware_request.pk}", "").strip()
+            try:
+                assign_box(request.user, hardware_request, box_code)
+            except WORKFLOW_EXCEPTIONS as exc:
+                self.message_user(
+                    request,
+                    f"{hardware_request.pk}: {exc}",
+                    level=messages.ERROR,
+                )
+            else:
+                success_count += 1
+
+        if success_count:
+            self.message_user(
+                request,
+                f"Assigned boxes for {success_count} hardware request(s).",
+                level=messages.SUCCESS,
+            )
+        return None
+
+    def _intermediate_action_response(
+        self,
+        request,
+        queryset,
+        template_name,
+        title,
+        action_name,
+    ):
+        context = {
+            **self.admin_site.each_context(request),
+            "title": title,
+            "queryset": queryset,
+            "opts": self.model._meta,
+            "action_name": action_name,
+            "action_checkbox_name": ACTION_CHECKBOX_NAME,
+        }
+        return TemplateResponse(request, template_name, context)
 
 
 @admin.register(HardwareEmailTemplate)
-class HardwareEmailTemplateAdmin(ModelAdmin):
+class HardwareEmailTemplateAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = ("makerspace", "key", "subject", "is_active", "updated_at")
     list_filter = ("key", "is_active", "makerspace")
     search_fields = ("subject", "text_body", "html_body", "makerspace__name")
@@ -132,48 +232,3 @@ class HardwareEmailTemplateAdmin(ModelAdmin):
         "created_at",
         "updated_at",
     )
-
-    def has_module_permission(self, request):
-        user = getattr(request, "user", None)
-        return bool(
-            user
-            and user.is_authenticated
-            and user.is_active
-            and user.access_status == User.AccessStatus.ACTIVE
-            and (
-                user.is_superuser
-                or user.role in MANAGER_ROLES
-                or bool(rbac.makerspaces_for_action(user, rbac.Action.ACCEPT_REQUEST))
-            )
-        )
-
-    def has_view_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def has_add_permission(self, request):
-        return self.has_module_permission(request)
-
-    def has_change_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def has_delete_permission(self, request, obj=None):
-        return self.has_module_permission(request)
-
-    def get_queryset(self, request):
-        return rbac.scope_by_action(
-            request.user,
-            rbac.Action.ACCEPT_REQUEST,
-            super().get_queryset(request).select_related("makerspace"),
-        )
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "makerspace" and not (
-            request.user.is_superuser or request.user.role == User.Role.SUPERADMIN
-        ):
-            scope = rbac.makerspaces_for_action(
-                request.user, rbac.Action.ACCEPT_REQUEST
-            )
-            ids = [] if scope is rbac.ALL else scope
-            kwargs["queryset"] = Makerspace.objects.filter(id__in=ids)
-            kwargs["required"] = True
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)

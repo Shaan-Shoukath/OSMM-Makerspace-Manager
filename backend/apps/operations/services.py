@@ -116,53 +116,59 @@ def create_stocktake(actor, makerspace, data):
 
 
 def add_stocktake_line(actor, stocktake, data):
-    if stocktake.status not in {StocktakeSession.Status.DRAFT, StocktakeSession.Status.COUNTING}:
-        raise ValidationError("Cannot add count lines after stocktake is completed.")
-    product = None
-    asset = None
-    expected = 0
-    if data.get("asset_id"):
-        asset = InventoryAsset.objects.get(pk=data["asset_id"], makerspace=stocktake.makerspace)
-        expected = 1 if asset.status == InventoryAsset.Status.AVAILABLE else 0
-    else:
-        product = InventoryProduct.objects.get(pk=data["product_id"], makerspace=stocktake.makerspace)
-        expected = product.available_quantity
-    container = _container(data.get("container_id"), stocktake.makerspace_id)
-    counted = data["counted_quantity"]
-    line = StocktakeLine.objects.create(
-        stocktake=stocktake,
-        product=product,
-        asset=asset,
-        container=container,
-        expected_quantity=expected,
-        counted_quantity=counted,
-        variance_quantity=counted - expected,
-        condition=data.get("condition") or StocktakeLine.Condition.AVAILABLE,
-        notes=data.get("notes", ""),
-    )
-    audit.record(actor, "stocktake.line_counted", makerspace=stocktake.makerspace, target=stocktake, meta={"line_id": line.id})
-    return line
+    with transaction.atomic():
+        locked = StocktakeSession.objects.select_for_update().get(pk=stocktake.pk)
+        if locked.status not in {StocktakeSession.Status.DRAFT, StocktakeSession.Status.COUNTING}:
+            raise ValidationError("Cannot add count lines after stocktake is completed.")
+        product = None
+        asset = None
+        expected = 0
+        if data.get("asset_id"):
+            asset = InventoryAsset.objects.get(pk=data["asset_id"], makerspace=locked.makerspace)
+            expected = 1 if asset.status == InventoryAsset.Status.AVAILABLE else 0
+        else:
+            product = InventoryProduct.objects.get(pk=data["product_id"], makerspace=locked.makerspace)
+            expected = product.available_quantity
+        container = _container(data.get("container_id"), locked.makerspace_id)
+        counted = data["counted_quantity"]
+        line = StocktakeLine.objects.create(
+            stocktake=locked,
+            product=product,
+            asset=asset,
+            container=container,
+            expected_quantity=expected,
+            counted_quantity=counted,
+            variance_quantity=counted - expected,
+            condition=data.get("condition") or StocktakeLine.Condition.AVAILABLE,
+            notes=data.get("notes", ""),
+        )
+        audit.record(actor, "stocktake.line_counted", makerspace=locked.makerspace, target=locked, meta={"line_id": line.id})
+        return line
 
 
 def complete_stocktake(actor, stocktake):
-    if stocktake.status != StocktakeSession.Status.COUNTING:
-        raise ValidationError("Only counting stocktakes can be completed.")
-    stocktake.status = StocktakeSession.Status.COMPLETED
-    stocktake.completed_at = timezone.now()
-    stocktake.save(update_fields=["status", "completed_at"])
-    audit.record(actor, "stocktake.completed", makerspace=stocktake.makerspace, target=stocktake)
-    return stocktake
+    with transaction.atomic():
+        locked = StocktakeSession.objects.select_for_update().get(pk=stocktake.pk)
+        if locked.status != StocktakeSession.Status.COUNTING:
+            raise ValidationError("Only counting stocktakes can be completed.")
+        locked.status = StocktakeSession.Status.COMPLETED
+        locked.completed_at = timezone.now()
+        locked.save(update_fields=["status", "completed_at"])
+        audit.record(actor, "stocktake.completed", makerspace=locked.makerspace, target=locked)
+        return locked
 
 
 def approve_stocktake(actor, stocktake):
-    if stocktake.status != StocktakeSession.Status.COMPLETED:
-        raise ValidationError("Only completed stocktakes can be approved.")
-    stocktake.status = StocktakeSession.Status.APPROVED
-    stocktake.approved_by = actor
-    stocktake.approved_at = timezone.now()
-    stocktake.save(update_fields=["status", "approved_by", "approved_at"])
-    audit.record(actor, "stocktake.approved", makerspace=stocktake.makerspace, target=stocktake)
-    return stocktake
+    with transaction.atomic():
+        locked = StocktakeSession.objects.select_for_update().get(pk=stocktake.pk)
+        if locked.status != StocktakeSession.Status.COMPLETED:
+            raise ValidationError("Only completed stocktakes can be approved.")
+        locked.status = StocktakeSession.Status.APPROVED
+        locked.approved_by = actor
+        locked.approved_at = timezone.now()
+        locked.save(update_fields=["status", "approved_by", "approved_at"])
+        audit.record(actor, "stocktake.approved", makerspace=locked.makerspace, target=locked)
+        return locked
 
 
 def apply_stocktake_adjustments(actor, stocktake):
@@ -234,6 +240,22 @@ def generate_assets_with_qr(actor, product, data):
             created.append({"asset": asset, "qr": qr})
         audit.record(actor, "asset_units.generated", makerspace=product.makerspace, target=product, meta={"count": data["count"]})
     return created, batch
+
+
+def mark_batch_printed(actor, batch):
+    with transaction.atomic():
+        locked = QrPrintBatch.objects.select_for_update().get(pk=batch.pk)
+        # Only a draft batch can be marked printed: block re-printing and prevent an
+        # archived batch from being silently unarchived back to printed.
+        if locked.status != QrPrintBatch.Status.DRAFT:
+            raise ValidationError(
+                f"Only draft QR print batches can be marked printed (status: {locked.status})."
+            )
+        locked.status = QrPrintBatch.Status.PRINTED
+        locked.printed_at = timezone.now()
+        locked.save(update_fields=["status", "printed_at"])
+        audit.record(actor, "qr_print_batch.printed", makerspace=locked.makerspace, target=locked)
+        return locked
 
 
 def _container(container_id, makerspace_id):

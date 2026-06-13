@@ -3,6 +3,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_seriali
 from rest_framework import serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -58,6 +59,8 @@ class LoginView(TokenObtainPairView):
     # Explicit under deny-by-default (DEFAULT_PERMISSION_CLASSES=IsAuthenticated):
     # obtaining a token must be open. RefreshView inherits simplejwt's AllowAny.
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
     serializer_class = LoginSerializer
 
     @extend_schema(

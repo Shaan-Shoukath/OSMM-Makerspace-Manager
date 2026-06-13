@@ -866,7 +866,7 @@ def test_request_submit_throttle_returns_429_on_second_rapid_submit(settings, mo
     rest_framework_settings = dict(django_settings.REST_FRAMEWORK)
     rest_framework_settings["DEFAULT_THROTTLE_RATES"] = {
         **django_settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],
-        "request_submit": "1/min",
+        "public_request_submit": "1/min",
     }
     settings.REST_FRAMEWORK = rest_framework_settings
     monkeypatch.setattr(

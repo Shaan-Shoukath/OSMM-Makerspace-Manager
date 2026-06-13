@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "unfold.contrib.filters",
     "django.contrib.admin",
     "django.contrib.auth",
+    "axes",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
@@ -48,6 +49,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "csp.middleware.CSPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
@@ -55,8 +57,10 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "config.admin_access.AdminSuperuserOnlyMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "axes.middleware.AxesMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -104,6 +108,22 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
+
+AUTHENTICATION_BACKENDS = [
+    "axes.backends.AxesStandaloneBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
+
+AXES_FAILURE_LIMIT = env.int("AXES_FAILURE_LIMIT", default=5)
+AXES_COOLOFF_TIME = 1
+AXES_RESET_ON_SUCCESS = True
+# Axes hooks Django's authenticate(), so it covers BOTH the admin session login and
+# the SimpleJWT staff login (apps/accounts LoginView) — intentional brute-force lockout
+# on top of that view's DRF rate throttle. The nested list makes the lockout key the
+# COMBINATION of ip_address+username (AND), not either alone (OR): repeated failures
+# against a known username from other IPs can't lock that account out (no username DoS).
+AXES_LOCKOUT_PARAMETERS = [["ip_address", "username"]]
+AXES_ENABLED = env.bool("AXES_ENABLED", default=True)
 
 AWS_ACCESS_KEY_ID = env("AWS_ACCESS_KEY_ID", default="")
 AWS_SECRET_ACCESS_KEY = env("AWS_SECRET_ACCESS_KEY", default="")
@@ -199,6 +219,11 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "apps.hardware_requests.exceptions.workflow_exception_handler",
     "DEFAULT_THROTTLE_RATES": {
         "checkin_verify": env("THROTTLE_CHECKIN_VERIFY", default="30/min"),
+        "login": env("THROTTLE_LOGIN", default="10/min"),
+        "public_request_submit": env(
+            "THROTTLE_PUBLIC_REQUEST_SUBMIT",
+            default="10/min",
+        ),
         "request_submit": env("THROTTLE_REQUEST_SUBMIT", default="10/min"),
         "request_status": env("THROTTLE_REQUEST_STATUS", default="60/min"),
         "public_read": env("THROTTLE_PUBLIC_READ", default="120/min"),
@@ -207,6 +232,44 @@ REST_FRAMEWORK = {
         "client_trusted": env("THROTTLE_CLIENT_TRUSTED", default="600/min"),
     },
     "URL_FORMAT_OVERRIDE": None,
+}
+
+# TLS-dependent hardening. Gated behind ENABLE_HTTPS (env), NOT DEBUG: the provided
+# Docker/prod compose runs DEBUG=False but serves plain HTTP behind nginx (it sets
+# X-Forwarded-Proto: $scheme = http) and the backend healthcheck hits http://localhost:8000.
+# Forcing SSL redirect / Secure cookies there would 301-loop the API and break admin login.
+# Deployments terminating real TLS set ENABLE_HTTPS=true (and a proxy that sends
+# X-Forwarded-Proto: https). Individual toggles still override the group default.
+ENABLE_HTTPS = env.bool("ENABLE_HTTPS", default=False)
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=ENABLE_HTTPS)
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=ENABLE_HTTPS)
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=ENABLE_HTTPS)
+SECURE_HSTS_SECONDS = env.int(
+    "SECURE_HSTS_SECONDS", default=31536000 if ENABLE_HTTPS else 0
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = SECURE_HSTS_SECONDS > 0
+SECURE_HSTS_PRELOAD = SECURE_HSTS_SECONDS > 0
+
+# Always-on, transport-independent headers.
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+SECURE_REFERRER_POLICY = "same-origin"
+
+# Permissive enough for the current admin and API docs; tighten per deployment later.
+# drf-spectacular's Swagger UI / Redoc load their JS+CSS from the jsDelivr CDN, so the
+# CDN is allowed for script/style/img/font; drop it (or adopt drf-spectacular-sidecar to
+# serve the assets from 'self') once the docs UI is locally hosted.
+_SWAGGER_CDN = "https://cdn.jsdelivr.net"
+CONTENT_SECURITY_POLICY = {
+    "DIRECTIVES": {
+        "default-src": ["'self'"],
+        "script-src": ["'self'", "'unsafe-inline'", _SWAGGER_CDN],
+        "style-src": ["'self'", "'unsafe-inline'", _SWAGGER_CDN],
+        "img-src": ["'self'", "data:", _SWAGGER_CDN],
+        "font-src": ["'self'", "data:", _SWAGGER_CDN],
+        "worker-src": ["'self'", "blob:"],
+    }
 }
 
 SIMPLE_JWT = {

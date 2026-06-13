@@ -5,8 +5,9 @@ import time
 import pytest
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
-from django.test import override_settings
-from rest_framework.test import APIClient, APIRequestFactory
+from django.test import Client, override_settings
+from django.urls import reverse
+from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.apiclients.admin import ApiClientAdmin
@@ -34,23 +35,41 @@ def test_issue_returns_raw_secret_and_stores_it_encrypted():
     assert bytes(client.secret_encrypted) != raw.encode()  # NOT plaintext at rest
 
 
-def _admin_user(username, role=User.Role.SPACE_MANAGER):
+def _admin_user(username, role=User.Role.SPACE_MANAGER, **kwargs):
     return get_user_model().objects.create_user(
-        username=username, email=f"{username}@e.com", role=role
+        username=username, email=f"{username}@e.com", role=role, **kwargs
     )
 
 
-def test_admin_changelist_scoped_to_own_makerspace():
+def test_api_client_admin_changelist_is_superadmin_only():
     a, b = Makerspace.objects.create(name="A", slug="a"), Makerspace.objects.create(name="B", slug="b")
     ApiClient.issue(label="A-client", makerspace=a)
     ApiClient.issue(label="B-client", makerspace=b)
-    admin_user = _admin_user("scoped")
-    MakerspaceMembership.objects.create(user=admin_user, makerspace=a, role="space_manager")
+    manager = _admin_user(
+        "api-client-manager",
+        access_status=User.AccessStatus.ACTIVE,
+        is_staff=True,
+    )
+    superadmin = _admin_user(
+        "api-client-superadmin",
+        role=User.Role.SUPERADMIN,
+        access_status=User.AccessStatus.ACTIVE,
+        is_staff=True,
+        is_superuser=True,
+    )
+    MakerspaceMembership.objects.create(
+        user=manager,
+        makerspace=a,
+        role=MakerspaceMembership.Role.SPACE_MANAGER,
+    )
+    url = reverse("admin:apiclients_apiclient_changelist")
 
-    req = APIRequestFactory().get("/")
-    req.user = admin_user
-    qs = ApiClientAdmin(ApiClient, AdminSite()).get_queryset(req)
-    assert {c.makerspace_id for c in qs} == {a.id}  # cannot see B's client
+    client = Client()
+    client.force_login(manager)
+    assert client.get(url).status_code == 403
+
+    client.force_login(superadmin)
+    assert client.get(url).status_code == 200
 
 
 def test_integration_fields_live_on_api_client_admin_not_makerspace_admin():

@@ -2,10 +2,11 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin
 
 from apps.audit.models import AuditLog
+from config.admin_access import SuperuserOnlyModelAdmin
 
 
 @admin.register(AuditLog)
-class AuditLogAdmin(ModelAdmin):
+class AuditLogAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = (
         "created_at",
         "actor",

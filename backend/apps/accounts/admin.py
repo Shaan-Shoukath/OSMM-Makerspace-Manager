@@ -7,6 +7,7 @@ from unfold.forms import AdminPasswordChangeForm, UserChangeForm, UserCreationFo
 
 from apps.accounts.models import User
 from apps.makerspaces.models import MakerspaceMembership
+from config.admin_access import SuperuserOnlyModelAdmin
 
 
 class MakerspaceMembershipInline(TabularInline):
@@ -18,7 +19,7 @@ class MakerspaceMembershipInline(TabularInline):
 
 
 @admin.register(User)
-class UserAdmin(DjangoUserAdmin, ModelAdmin):
+class UserAdmin(SuperuserOnlyModelAdmin, DjangoUserAdmin, ModelAdmin):
     form = UserChangeForm
     add_form = UserCreationForm
     change_password_form = AdminPasswordChangeForm
@@ -45,5 +46,5 @@ admin.site.unregister(Group)
 
 
 @admin.register(Group)
-class GroupAdmin(DjangoGroupAdmin, ModelAdmin):
+class GroupAdmin(SuperuserOnlyModelAdmin, DjangoGroupAdmin, ModelAdmin):
     pass

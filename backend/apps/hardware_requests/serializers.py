@@ -7,6 +7,7 @@ class RequestItemInputSerializer(serializers.Serializer):
 
 
 class RequestSubmitSerializer(serializers.Serializer):
+    website = serializers.CharField(required=False, allow_blank=True, write_only=True)
     identifier = serializers.CharField()
     contact_email = serializers.EmailField(
         required=False,
@@ -27,6 +28,7 @@ class RequestSubmitSerializer(serializers.Serializer):
     items = RequestItemInputSerializer(many=True, allow_empty=False)
 
     def validate(self, attrs):
+        attrs["website"] = attrs.get("website", "")
         product_ids = [item["product_id"] for item in attrs["items"]]
         if len(product_ids) != len(set(product_ids)):
             raise serializers.ValidationError(

@@ -4,6 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Status
 
+### Admin control plane (superadmin-only)
+
+The **Unfold Django admin is the Super Admin's sole control plane** and is locked to
+superadmins. Access is gated two ways: `config.admin_access.AdminSuperuserOnlyMiddleware`
+(exact `/admin` prefix match — the `/api/v1/admin/...` React staff APIs are NOT gated) denies
+any authenticated non-superadmin, and `config.admin_access.SuperuserOnlyModelAdmin` is the first
+base of every `ModelAdmin` so each model view requires an active `is_superuser`. Unfold sidebar
+nav callbacks (`config/unfold.py`) are strict-active-superuser too. All other staff roles
+(Space/Inventory/Guest/Print managers) operate **only in the React staff console** and have no
+Django-admin access. Superadmin operations are exposed as Django admin actions that route through
+the existing services (never mutating status directly): hardware-request **accept/reject/assign-box**
+(`hardware_requests/admin.py`), stocktake **complete/approve/apply** + QR-batch **mark-printed** +
+per-product **QR-asset generation** (`operations/admin.py`, `inventory/admin.py`), and print-request
+**accept/reject/complete/fail/start** (`printing/admin.py`). `StockTransfer` admin is read-only
+(transfers are created+applied via `operations.services.apply_stock_transfer`). Issue/return remain
+React-only (deferred). Stocktake lifecycle services now take a fresh `select_for_update` row lock
+before status transitions. **U-SEC:** django-axes admin-login lockout (backends
+`[AxesStandaloneBackend, ModelBackend]`, disabled in tests via `tests/conftest.py`), a scoped
+`login` throttle on the JWT `LoginView`, a dedicated `public_request_submit` throttle scope plus a
+write-only `website` honeypot on the public submit (silent fake-success, no row created),
+production-gated security headers (HSTS/SSL-redirect/secure-cookies/`SECURE_PROXY_SSL_HEADER`) +
+always-on CSP via django-csp 4 (`CONTENT_SECURITY_POLICY`), and a `pip-audit` CI job
+(`.github/workflows/security-audit.yml`). Design spec:
+`docs/superpowers/specs/2026-06-13-superadmin-admin-control-plane-design.md`.
+
 **Implementation is in progress.** Public inventory browse, staff auth/RBAC foundations,
 API-client HMAC support, QR/box foundations, Phase 3 audit/evidence
 infrastructure, the 3D Printing Manager (request lifecycle + email

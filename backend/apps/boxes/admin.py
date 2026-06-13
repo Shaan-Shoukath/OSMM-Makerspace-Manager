@@ -4,10 +4,11 @@ from django.utils.safestring import mark_safe
 from unfold.admin import ModelAdmin
 
 from apps.boxes.models import Box, QrCode, QrScanEvent
+from config.admin_access import SuperuserOnlyModelAdmin
 
 
 @admin.register(Box)
-class BoxAdmin(ModelAdmin):
+class BoxAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = ("label", "makerspace", "parent", "code", "is_active", "updated_at")
     list_filter = ("makerspace", "is_active")
     search_fields = ("label", "code", "location")
@@ -23,7 +24,7 @@ class BoxAdmin(ModelAdmin):
 
 
 @admin.register(QrCode)
-class QrCodeAdmin(ModelAdmin):
+class QrCodeAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = ("payload", "makerspace", "target_type", "target_id", "status", "updated_at")
     list_filter = ("makerspace", "target_type", "status")
     search_fields = ("payload",)
@@ -31,7 +32,7 @@ class QrCodeAdmin(ModelAdmin):
 
 
 @admin.register(QrScanEvent)
-class QrScanEventAdmin(ModelAdmin):
+class QrScanEventAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = ("qr_code", "makerspace", "context", "actor", "created_at")
     list_filter = ("makerspace", "context")
     search_fields = ("qr_code__payload",)

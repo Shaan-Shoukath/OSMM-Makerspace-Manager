@@ -1,3 +1,6 @@
+import uuid
+from types import SimpleNamespace
+
 from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
@@ -8,6 +11,7 @@ from rest_framework.views import APIView
 from apps.apiclients.throttling import ClientTierRateThrottle
 from apps.checkin import client as checkin
 from apps.hardware_requests import workflow
+from apps.hardware_requests.models import HardwareRequest
 from apps.hardware_requests.serializers import (
     CheckinVerifyRequestSerializer,
     CheckinVerifyResponseSerializer,
@@ -60,7 +64,7 @@ class CheckinVerifyView(APIView):
 class RequestSubmitView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [ClientTierRateThrottle]
-    throttle_scope = "request_submit"
+    throttle_scope = "public_request_submit"
 
     @extend_schema(
         tags=["Public requests"],
@@ -74,9 +78,22 @@ class RequestSubmitView(APIView):
     def post(self, request, makerspace_slug, *args, **kwargs):
         makerspace = get_public_makerspace(makerspace_slug)
         _require_module(makerspace, "request_workflow")
+        # Honeypot check FIRST, on the raw payload: a bot that fills `website` must get a
+        # normal-looking success even if it also garbled a required field — otherwise a
+        # validation error would reveal that the honeypot was the rejection trigger.
+        if _honeypot_filled(request.data):
+            decoy = SimpleNamespace(
+                public_token=uuid.uuid4(),
+                status=HardwareRequest.Status.PENDING_APPROVAL,
+            )
+            return Response(
+                RequestSubmitResponseSerializer(decoy).data,
+                status=status.HTTP_201_CREATED,
+            )
         serializer = RequestSubmitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        data.pop("website", None)
 
         product_ids = [item["product_id"] for item in data["items"]]
         products = _requestable_products(product_ids, makerspace)
@@ -166,6 +183,16 @@ class RequestLookupView(APIView):
             .order_by("-created_at")
         )
         return Response(PublicRequestListItemSerializer(queryset, many=True).data)
+
+
+def _honeypot_filled(payload):
+    """True if the hidden anti-spam `website` field was populated. Real browsers never
+    fill it; bots that auto-fill every field do. Read defensively from the raw payload."""
+    try:
+        value = payload.get("website", "")
+    except AttributeError:
+        return False
+    return bool(str(value).strip())
 
 
 def _requestable_products(product_ids, makerspace):

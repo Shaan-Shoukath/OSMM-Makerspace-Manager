@@ -627,7 +627,7 @@ def test_openapi_schema_includes_public_inventory_path(api_client):
     assert "inventory" in schema_text
 
 
-def test_backend_docs_are_not_under_api_prefix(api_client):
+def test_backend_docs_are_available_at_root_and_api_docs_alias(api_client):
     root = api_client.get("/")
     assert root.status_code == 200
     assert b"/docs/" in root.content
@@ -643,5 +643,5 @@ def test_backend_docs_are_not_under_api_prefix(api_client):
     assert b"redoc" in redoc.content.lower()
 
     assert api_client.get("/schema/").status_code == 200
-    assert api_client.get("/api/docs/").status_code == 404
+    assert api_client.get("/api/docs/").status_code == 200
     assert api_client.get("/api/schema/").status_code == 404

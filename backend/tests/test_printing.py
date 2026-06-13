@@ -1,7 +1,8 @@
 import pytest
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.contrib.auth import get_user_model
 from django.core import mail
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import Client
 from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
@@ -735,33 +736,31 @@ def test_print_email_templates_render_subject_and_branded_html(
     assert "background:#111111;color:#FBB905" in html
 
 
-def test_printbucket_admin_scope_is_action_aware_not_raw_membership():
-    """A global-admin who is only a guest_admin MEMBER of a space must not see
-    that space's buckets in the printing admin (Stage 4 P2 fix)."""
-    from django.contrib.admin.sites import AdminSite
-    from django.test import RequestFactory
-
-    from apps.printing.admin import PrintBucketAdmin
-
+def test_printbucket_admin_changelist_is_superadmin_only():
     managed = make_space("admin-managed")
-    other = make_space("admin-guest-only")
-    # global ADMIN, but only an ADMIN member of `managed` and guest_admin of `other`.
-    user = make_member(
-        "dual-role-admin",
+    other = make_space("admin-other")
+    manager = make_member(
+        "print-admin-manager",
         managed,
-        membership_role=MakerspaceMembership.Role.SPACE_MANAGER,
-        role=User.Role.SPACE_MANAGER,
+        membership_role=MakerspaceMembership.Role.PRINT_MANAGER,
+        role=User.Role.REQUESTER,
     )
-    MakerspaceMembership.objects.create(
-        user=user, makerspace=other, role=MakerspaceMembership.Role.GUEST_ADMIN
+    manager.is_staff = True
+    manager.save(update_fields=["is_staff"])
+    superadmin = make_user(
+        "print-admin-superadmin",
+        role=User.Role.SUPERADMIN,
+        access_status=User.AccessStatus.ACTIVE,
+        is_staff=True,
+        is_superuser=True,
     )
-    in_scope = make_bucket(managed, name="In scope")
-    out_of_scope = make_bucket(other, name="Out of scope")
+    make_bucket(managed, name="In scope")
+    make_bucket(other, name="Out of scope")
+    url = reverse("admin:printing_printbucket_changelist")
 
-    request = RequestFactory().get("/admin/printing/printbucket/")
-    request.user = user
-    qs = PrintBucketAdmin(PrintBucket, AdminSite()).get_queryset(request)
+    client = Client()
+    client.force_login(manager)
+    assert client.get(url).status_code == 403
 
-    ids = set(qs.values_list("id", flat=True))
-    assert in_scope.id in ids
-    assert out_of_scope.id not in ids
+    client.force_login(superadmin)
+    assert client.get(url).status_code == 200

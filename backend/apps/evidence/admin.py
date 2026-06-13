@@ -2,10 +2,11 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin
 
 from apps.evidence.models import EvidencePhoto
+from config.admin_access import SuperuserOnlyModelAdmin
 
 
 @admin.register(EvidencePhoto)
-class EvidencePhotoAdmin(ModelAdmin):
+class EvidencePhotoAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = (
         "id",
         "makerspace",

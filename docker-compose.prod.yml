@@ -22,6 +22,10 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-makerspace}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-makerspace_manager}}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       API_CLIENT_ENC_KEY: ${API_CLIENT_ENC_KEY:-}
+      # Security hardening. Keep ENABLE_HTTPS=false for this HTTP-behind-nginx stack;
+      # set it true only when a TLS proxy forwards X-Forwarded-Proto: https.
+      ENABLE_HTTPS: ${ENABLE_HTTPS:-false}
+      AXES_FAILURE_LIMIT: ${AXES_FAILURE_LIMIT:-5}
       EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.smtp.EmailBackend}
       EMAIL_HOST: ${EMAIL_HOST:-}
       EMAIL_PORT: ${EMAIL_PORT:-587}

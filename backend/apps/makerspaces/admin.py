@@ -2,6 +2,7 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
 
 from apps.makerspaces.models import Makerspace, MakerspaceMembership, TenantFrontend
+from config.admin_access import SuperuserOnlyModelAdmin
 
 
 class MakerspaceMembershipInline(TabularInline):
@@ -13,7 +14,7 @@ class MakerspaceMembershipInline(TabularInline):
 
 
 @admin.register(Makerspace)
-class MakerspaceAdmin(ModelAdmin):
+class MakerspaceAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = (
         "name",
         "public_code",
@@ -44,7 +45,7 @@ class MakerspaceAdmin(ModelAdmin):
 
 
 @admin.register(TenantFrontend)
-class TenantFrontendAdmin(ModelAdmin):
+class TenantFrontendAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     list_display = ("makerspace", "frontend_type", "hostname", "is_primary", "is_active", "updated_at")
     list_filter = ("frontend_type", "is_primary", "is_active")
     search_fields = ("makerspace__name", "makerspace__slug", "hostname", "token")

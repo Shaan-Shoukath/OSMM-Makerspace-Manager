@@ -6,30 +6,36 @@ from django.utils.translation import gettext_lazy as _
 SITE_NAME = os.environ.get("ADMIN_SITE_NAME", "Makerspace Manager")
 
 
+def _is_active_superuser(request):
+    user = getattr(request, "user", None)
+    return bool(
+        user
+        and user.is_authenticated
+        and user.is_active
+        and user.is_superuser
+        and getattr(user, "access_status", None)
+        == getattr(getattr(user, "AccessStatus", None), "ACTIVE", "active")
+    )
+
+
 def _can_view_makerspaces(request):
-    return request.user.has_perm("makerspaces.view_makerspace")
+    return _is_active_superuser(request)
 
 
 def _can_view_products(request):
-    return request.user.has_perm("inventory.view_inventoryproduct")
+    return _is_active_superuser(request)
 
 
 def _can_view_users(request):
-    return request.user.has_perm("accounts.view_user")
+    return _is_active_superuser(request)
 
 
 def _can_view_groups(request):
-    return request.user.has_perm("auth.view_group")
+    return _is_active_superuser(request)
 
 
 def _can_view_api_clients(request):
-    user = request.user
-    return bool(
-        user.is_authenticated
-        and user.is_active
-        and user.access_status == "active"
-        and (user.is_superuser or user.role in ("superadmin", "space_manager"))
-    )
+    return _is_active_superuser(request)
 
 
 UNFOLD = {

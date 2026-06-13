@@ -80,6 +80,8 @@ docker compose -f docker-compose.prod.yml up -d
 
 The backend container runs migrations on startup. Keep a database backup before changing versions.
 
+Manual dependency audit: `pip install pip-audit && pip-audit -r backend/requirements.txt`.
+
 ## Tenant Frontends
 
 Browser frontends must use publishable configuration only. Do not place HMAC secrets in JavaScript bundles.
