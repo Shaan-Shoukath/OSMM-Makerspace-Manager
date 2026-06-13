@@ -42,8 +42,15 @@ Implemented from `docs/prd-multifrontend-platform.md`:
 - Frontend public catalog bootstraps tenant branding/modules at runtime.
 - Browser HMAC secret usage was removed from the frontend contract; browser
   clients use publishable/bootstrap configuration only.
-- API-client browser/server type, scope metadata, rate-limit tier metadata, and
-  scope enforcement for protected API traffic.
+- API-client browser/server type, scope metadata, and scope enforcement for
+  protected API traffic.
+- Per-client rate-limit tiers (`apps/apiclients/throttling.py`
+  `ClientTierRateThrottle`): only HMAC-signed **server** clients get their
+  configured tier (`client_public`/`client_standard`/`client_trusted`), keyed by
+  `client_id`. Browser clients (publishable `client_id` + `Origin`, both
+  forgeable) and anonymous traffic fall back to the view's scoped IP rate and can
+  never claim an elevated tier. The middleware attaches `request.api_client` only
+  after verifying the HMAC signature.
 - Generated TypeScript API client from OpenAPI
   (`frontend/scripts/generate-api-client.mjs`, `frontend/src/generated/api.ts`).
 - Dedicated frontend routes for public catalog, public item detail, kiosk,
@@ -58,8 +65,10 @@ Implemented from `docs/prd-open-source-ops-and-reporting.md`:
 - Production-image Compose file (`docker-compose.prod.yml`), root `.env.example`,
   Docker health checks, and `docs/self-hosting.md`.
 - Staff refresh lifetime is 7 days in SimpleJWT settings.
-- Telegram request notifications include requester contact fields,
-  `requested_for`, and requested item lines.
+- The submitted-request Telegram alert includes requester username, contact
+  email, contact phone, `requested_for`, and each requested item with its
+  quantity (built in `notifications._build_submitted_request_message`, sent as
+  plain text with no `parse_mode`, length-capped under Telegram's 4096 limit).
 - Guest admins can process returns for scoped makerspaces through the same
   audited return workflow as staff.
 - `apps.operations` with stock transfers, stocktake sessions/lines,
@@ -72,8 +81,27 @@ Implemented from `docs/prd-open-source-ops-and-reporting.md`:
 - Docker image publishing workflow for GHCR
   (`.github/workflows/docker-images.yml`).
 - Public item detail pages backed by a safe public detail API.
-- Serialized direct handout enforcement: individual-mode products require a
-  scanned asset QR payload; quantity-mode direct handout remains supported.
+- Serialized handout enforcement in BOTH handout paths: individual-mode
+  (`tracking_mode == INDIVIDUAL`) products require scanned asset QR payloads.
+  Direct handout rejects unscanned individual products; the reviewed-request
+  issue flow (`handover_workflow.issue_request(..., asset_qr_payloads=...)`)
+  requires one scanned AVAILABLE asset per accepted unit, flips each to `ISSUED`,
+  and records a `HardwareRequestItemAsset` link + `QrScanEvent`. Returns use a
+  count-based asset flip (the quantity resolution drives how many still-`ISSUED`
+  links flip to AVAILABLE/DAMAGED/LOST; partial returns leave the rest issued).
+  Quantity-mode handout/return is unchanged. `availability` remains the sole
+  owner of quantity buckets; asset locks are taken QR→asset→product to match the
+  self-checkout/direct-loan order.
+- Full OpenAPI/Swagger coverage for the `operations` app (containers, stock
+  transfers, stocktake, analytics, reports, QR print batches, asset units) via
+  `@extend_schema`, with `(status, media_type)` mappings for the CSV/XLSX/HTML
+  responses; snapshot `frontend/openapi-schema.json` + generated TS client kept
+  in sync.
+- Reusable staff-console UI primitives (`frontend/src/components/ui/`:
+  `DataTable`, `FilterBar`, `BulkActionToolbar`, `StatusBadge`, `EmptyState`,
+  `DetailDrawer`); the Inventory panel uses them (sortable dense table, bulk QR
+  actions, saved-view search, item detail drawer). Other staff panels can adopt
+  the primitives incrementally.
 - Direct Google Sheets publishing, procurement, maintenance, native apps, and
   direct label-printer integrations remain out of scope or future work per the
   PRDs.
@@ -166,7 +194,7 @@ cd backend && pytest
   `permissions.py` provides `CanManagePrinting` action-aware 403/404; `emails.py`
   sends fail-safe branded SMTP notifications. Templates in
   `backend/templates/email/`.
-- `backend/apps/hardware_requests/` — Hardware Request Workflow (submit + accept/reject + issue + return): `HardwareRequest`/`HardwareRequestItem`, immutable `ReturnEvent`, and immutable `RequesterAccountability` models; `workflow.py` (single source of truth: `submit_request`/`accept_request`/`reject_request`/`assign_box`/`issue_request`/`return_items`, atomic + row-locked + audited; reserve-at-acceptance); `permissions.py` (`CanReviewRequest`, `CanViewHandoverQueue`, `CanReturnRequest`); `serializers.py` (strict public-status allowlist plus return item resolutions); `views.py` (public submit/verify/status under HMAC-protected `public/`; admin queues + accept/reject/assign-box/issue/return with 404-before-403 scoping); `exceptions.py` (workflow→HTTP exception handler + `ErrorSerializer`); `notifications.py` (Telegram seam); `urls.py`, `admin.py`.
+- `backend/apps/hardware_requests/` — Hardware Request Workflow (submit + accept/reject + issue + return): `HardwareRequest`/`HardwareRequestItem`, the `HardwareRequestItemAsset` through model (per-unit issue/return links for individual-mode handouts, in `asset_link_models.py`), immutable `ReturnEvent`, and immutable `RequesterAccountability` models; `workflow.py` (single source of truth: `submit_request`/`accept_request`/`reject_request`/`assign_box`/`issue_request`/`return_items`, atomic + row-locked + audited; reserve-at-acceptance); `permissions.py` (`CanReviewRequest`, `CanViewHandoverQueue`, `CanReturnRequest`); `serializers.py` (strict public-status allowlist plus return item resolutions); `views.py` (public submit/verify/status under HMAC-protected `public/`; admin queues + accept/reject/assign-box/issue/return with 404-before-403 scoping); `exceptions.py` (workflow→HTTP exception handler + `ErrorSerializer`); `notifications.py` (Telegram seam); `urls.py`, `admin.py`.
 - `backend/apps/hardware_requests/management/commands/send_return_reminders.py`
   — scheduled email reminder job. Run from cron/Task Scheduler; it only sends
   for issued/partially-returned requests whose `return_due_at` is past and whose

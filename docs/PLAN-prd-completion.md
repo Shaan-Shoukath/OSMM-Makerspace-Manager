@@ -166,16 +166,19 @@ through model, not a JSONField.
     `RequestValidationError` ("Individual-tracked products require scanned asset
     QR codes for handout."), matching the direct-loan message.
 
-- Return path (`return_workflow` / `return_helpers`): individual-mode items
-  resolve **per asset** — the return resolution names which scanned assets are
-  returned/damaged/lost (condition per unit); update each
-  `HardwareRequestItemAsset.outcome` + `returned_at` + `return_event`, flip the
-  `InventoryAsset.status` accordingly, and derive the per-item
-  returned/damaged/missing **counts** from those outcomes to feed
-  `availability.return_items` (so quantity buckets stay correct and the existing
-  partial-return accounting is untouched). Quantity-mode returns stay
-  quantity-based exactly as today. Reject re-resolving an asset already in a
-  terminal outcome (idempotency / no double-flip).
+- Return path (`return_workflow` / `return_helpers`): **count-based asset flip**
+  (decided over per-asset return scanning — minimal blast radius, no change to the
+  well-tested quantity return serializer). The return resolution stays
+  quantity-based (returned/damaged/missing counts per item) exactly as today.
+  After `availability.return_items` applies the quantity math, for each
+  individual-mode item flip that many of the item's still-`ISSUED`
+  `HardwareRequestItemAsset` rows to RETURNED/DAMAGED/LOST (and the linked
+  `InventoryAsset.status` to AVAILABLE/DAMAGED/LOST), in a deterministic order
+  (by asset pk). Only rows still in the ISSUED outcome are eligible, so partial
+  returns never double-flip; the still-out assets remain ISSUED. This keeps the
+  asset pools correct in aggregate without capturing which exact serial was
+  damaged (the return flow does not scan assets back today). Quantity-mode items
+  are untouched.
 
 - **Lock ordering (Codex finding #3) — same global order in issue and return to
   avoid deadlock:** (1) `locked_request(request)` →
