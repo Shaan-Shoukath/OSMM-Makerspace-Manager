@@ -26,7 +26,13 @@ before status transitions. **U-SEC:** django-axes admin-login lockout (backends
 write-only `website` honeypot on the public submit (silent fake-success, no row created),
 production-gated security headers (HSTS/SSL-redirect/secure-cookies/`SECURE_PROXY_SSL_HEADER`) +
 always-on CSP via django-csp 4 (`CONTENT_SECURITY_POLICY`), and a `pip-audit` CI job
-(`.github/workflows/security-audit.yml`). Design spec:
+(`.github/workflows/security-audit.yml`). The global CSP `script-src` omits `'unsafe-eval'`;
+because django-unfold ships the standard (eval-requiring) Alpine.js build, a tiny
+`config.admin_access.AdminCspEvalMiddleware` (ordered immediately after `csp.middleware.CSPMiddleware`)
+appends `'unsafe-eval'` to `script-src` **only for `/admin/` responses** via django-csp's
+per-response `_csp_update` attribute — the JSON API and the public Swagger/ReDoc docs stay on the
+strict policy. Without it Alpine never initializes and the admin is unusable (command palette stuck
+open, dead sidebar/`Esc`). Design spec:
 `docs/superpowers/specs/2026-06-13-superadmin-admin-control-plane-design.md`.
 
 **Admin reachability + self-host tooling.** The production stack does not publish the backend

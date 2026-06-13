@@ -65,3 +65,26 @@ def test_react_staff_admin_api_path_is_not_gated_by_django_admin_middleware():
     response = client.get("/api/v1/admin/makerspaces")
 
     assert response.status_code == 200
+
+
+def test_django_admin_login_csp_allows_unsafe_eval():
+    client = Client()
+
+    response = client.get("/admin/login/", SERVER_NAME="localhost")
+
+    assert response.status_code == 200
+    csp = response["Content-Security-Policy"]
+    script_src = next(
+        section for section in csp.split(";") if section.strip().startswith("script-src")
+    )
+    assert "'unsafe-eval'" in script_src
+
+
+def test_non_admin_docs_root_csp_does_not_allow_unsafe_eval():
+    client = Client()
+
+    response = client.get("/", SERVER_NAME="localhost")
+
+    assert response.status_code == 200
+    csp = response["Content-Security-Policy"]
+    assert "'unsafe-eval'" not in csp

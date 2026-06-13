@@ -38,6 +38,28 @@ class AdminSuperuserOnlyMiddleware:
         )
 
 
+class AdminCspEvalMiddleware:
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        if request.path_info == "/admin" or request.path_info.startswith("/admin/"):
+            # Unfold's standard Alpine build requires unsafe-eval; the Django admin is
+            # superuser-gated, so keep this exception scoped to admin responses only.
+            merged = dict(getattr(response, "_csp_update", None) or {})
+            script_src = merged.get("script-src", [])
+            if isinstance(script_src, str):
+                script_src = [script_src]
+            else:
+                script_src = list(script_src)
+            if "'unsafe-eval'" not in script_src:
+                script_src.append("'unsafe-eval'")
+            merged["script-src"] = script_src
+            response._csp_update = merged
+        return response
+
+
 class SuperuserOnlyModelAdmin:
     def _has_superuser_access(self, request):
         from apps.accounts.models import User
