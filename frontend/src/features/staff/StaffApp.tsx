@@ -87,7 +87,8 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
     );
   }
 
-  const isSuperadmin = user.is_superuser;
+  // Backend treats is_superuser OR role === "superadmin" as superadmin; mirror that.
+  const isSuperadmin = user.is_superuser || user.role === "superadmin";
 
   return (
     <main className="desk-shell grid lg:grid-cols-[260px_1fr]">

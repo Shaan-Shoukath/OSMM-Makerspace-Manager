@@ -42,7 +42,9 @@ export function AddStaffModal({
   onSubmit: () => void;
 }) {
   const errors = validationErrors(error);
-  const disabled = pending || !form.username.trim() || !form.makerspace_id;
+  // Password is required: the API does not return an auto-generated one, so a
+  // blank password would create an account nobody can sign into.
+  const disabled = pending || !form.username.trim() || !form.makerspace_id || !form.password;
   return (
     <Modal open={open} onClose={onClose} title="Add staff" footer={<ModalActions pending={pending} disabled={disabled} onClose={onClose} onSubmit={onSubmit} />}>
       <form className="grid gap-3 text-sm" onSubmit={(event) => { event.preventDefault(); if (!disabled) onSubmit(); }}>
@@ -60,7 +62,7 @@ export function AddStaffModal({
             <input className="desk-input w-full" value={form.last_name} onChange={(event) => onChange({ ...form, last_name: event.target.value })} />
           </Field>
         </div>
-        <Field label="Password" hint="Leave blank to auto-generate." error={errors.password}>
+        <Field label="Password" hint="Required — share it with the new staff member." error={errors.password}>
           <input className="desk-input w-full" type="password" value={form.password} onChange={(event) => onChange({ ...form, password: event.target.value })} />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">

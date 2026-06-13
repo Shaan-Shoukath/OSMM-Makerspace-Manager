@@ -85,15 +85,20 @@ export function StockTransferPanel({
     [destinationContainers.data?.results],
   );
 
+  const isCrossMakerspace = destinationMakerspaceId !== sourceMakerspaceId;
+
   const create = useMutation({
     mutationFn: () =>
       staffRequest(`/admin/makerspace/${sourceMakerspaceId}/stock-transfers`, {
         method: "POST",
         body: JSON.stringify({
           source_container_id: sourceContainerId ? Number(sourceContainerId) : null,
-          destination_container_id: destinationContainerId ? Number(destinationContainerId) : null,
-          destination_makerspace_id:
-            destinationMakerspaceId !== sourceMakerspaceId ? destinationMakerspaceId : null,
+          // The backend resolves destination_container_id within the SOURCE makerspace,
+          // so a container from a different destination makerspace would 404. Only send a
+          // destination container for intra-makerspace transfers.
+          destination_container_id:
+            !isCrossMakerspace && destinationContainerId ? Number(destinationContainerId) : null,
+          destination_makerspace_id: isCrossMakerspace ? destinationMakerspaceId : null,
           reason: reason.trim(),
           lines: lineRows.map((line) => ({
             product_id: Number(line.productId),
@@ -181,10 +186,16 @@ export function StockTransferPanel({
                 </select>
               </Field>
               <Field label="Destination container">
-                <select className="desk-input w-full" value={destinationContainerId} disabled={destinationContainers.isLoading} onChange={(event) => setDestinationContainerId(event.target.value)}>
-                  <option value="">No destination container</option>
-                  {destinationContainers.data?.results?.map((box) => <option key={box.id} value={box.id}>{labelForContainer(box)}</option>)}
-                </select>
+                {isCrossMakerspace ? (
+                  <p className="rounded-md border border-line bg-surface px-3 py-2 text-xs text-muted">
+                    Container selection applies to same-makerspace transfers only.
+                  </p>
+                ) : (
+                  <select className="desk-input w-full" value={destinationContainerId} disabled={destinationContainers.isLoading} onChange={(event) => setDestinationContainerId(event.target.value)}>
+                    <option value="">No destination container</option>
+                    {destinationContainers.data?.results?.map((box) => <option key={box.id} value={box.id}>{labelForContainer(box)}</option>)}
+                  </select>
+                )}
               </Field>
             </div>
 

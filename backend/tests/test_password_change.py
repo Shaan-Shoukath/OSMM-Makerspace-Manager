@@ -11,6 +11,42 @@ pytestmark = pytest.mark.django_db
 LOGIN = "/api/v1/auth/login"
 ME = "/api/v1/auth/me"
 CHANGE_PASSWORD = "/api/v1/auth/change-password"
+AUDIT_LOGS = "/api/v1/admin/audit-logs"
+
+
+def test_must_change_password_blocks_protected_api_until_rotated():
+    """The default super123 seed must not reach protected staff endpoints over the
+    API before rotating — only the rotation/me path stays open."""
+    get_user_model().objects.create_user(
+        username="gated-superadmin",
+        email="gated@example.com",
+        password="Current-Strong-123",
+        role=User.Role.SUPERADMIN,
+        access_status=User.AccessStatus.ACTIVE,
+        is_staff=True,
+        is_superuser=True,
+        must_change_password=True,
+    )
+    client = APIClient()
+    login = client.post(
+        LOGIN,
+        {"username": "gated-superadmin", "password": "Current-Strong-123"},
+        format="json",
+    )
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+
+    blocked = client.get(AUDIT_LOGS)
+    assert blocked.status_code == 403  # protected surface is closed pre-rotation
+
+    rotated = client.post(
+        CHANGE_PASSWORD,
+        {"current_password": "Current-Strong-123", "new_password": "New-Strong-123"},
+        format="json",
+    )
+    assert rotated.status_code == 200  # rotation path stayed open
+
+    allowed = client.get(AUDIT_LOGS)
+    assert allowed.status_code == 200  # flag cleared, surface reopens
 
 
 def test_setup_instance_default_superadmin_must_change_password(monkeypatch):

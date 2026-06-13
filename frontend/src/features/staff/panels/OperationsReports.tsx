@@ -63,7 +63,8 @@ export function OperationsReports({ makerspace, isSuperadmin }: { makerspace: Ma
   const scopeKey = aggregate ? "all" : makerspace.id;
   const analyticsBase = aggregate ? "/admin/analytics" : `/admin/makerspace/${makerspace.id}/analytics`;
   const reportsBase = aggregate ? "/admin/reports" : `/admin/makerspace/${makerspace.id}/reports`;
-  const printingPath = aggregate ? "/admin/printing/reports" : `/admin/makerspace/${makerspace.id}/printing/reports`;
+  // printing routes are mounted under /api/v1/printing/ (not /api/v1/admin/).
+  const printingPath = aggregate ? "/printing/admin/printing/reports" : `/printing/admin/makerspace/${makerspace.id}/printing/reports`;
 
   const summary = useStaffGet<Summary>(["operations-report", "summary", scopeKey], `${analyticsBase}/summary`);
   const mostLent = useStaffGet<ReportRows>(["operations-report", "most-lent", scopeKey], `${analyticsBase}/most-lent`);

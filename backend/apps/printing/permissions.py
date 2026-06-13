@@ -8,6 +8,7 @@ def _active_authenticated(user):
     return bool(
         getattr(user, "is_authenticated", False)
         and user.access_status == User.AccessStatus.ACTIVE
+        and not getattr(user, "must_change_password", False)
     )
 
 
