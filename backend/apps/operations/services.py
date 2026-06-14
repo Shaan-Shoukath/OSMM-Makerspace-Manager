@@ -156,6 +156,12 @@ def _apply_cross_makerspace_line(
         .filter(makerspace_id=dest_makerspace_id, name__iexact=src.name)
         .first()
     )
+    if dest is not None and dest.tracking_mode == TrackingMode.INDIVIDUAL:
+        # Crediting quantity onto an individual-tracked product would create phantom
+        # units with no backing InventoryAsset/QR rows. Refuse instead of corrupting.
+        raise ValidationError(
+            {"product_id": "Destination already has an individual-tracked product with this name."}
+        )
     if dest is None:
         dest = InventoryProduct.objects.create(
             makerspace_id=dest_makerspace_id,

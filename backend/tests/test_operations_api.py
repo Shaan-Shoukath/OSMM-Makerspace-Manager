@@ -68,6 +68,20 @@ def test_cross_makerspace_transfer_credits_existing_destination_product():
     assert InventoryProduct.objects.filter(makerspace=dest, name="Multimeter").count() == 1
 
 
+def test_cross_makerspace_transfer_rejects_individual_destination_match():
+    source = make_space("xfer-src5")
+    dest = make_space("xfer-dst5")
+    superadmin = make_user("xfer-super5", role=User.Role.SUPERADMIN, access_status=User.AccessStatus.ACTIVE)
+    product = make_product(source, name="Drill", total_quantity=10, available_quantity=10)
+    make_product(dest, name="Drill", total_quantity=1, available_quantity=1, tracking_mode=TrackingMode.INDIVIDUAL)
+
+    response = _cross_transfer(superadmin, source, dest, product, 2)
+
+    assert response.status_code == 400
+    product.refresh_from_db()
+    assert product.available_quantity == 10  # source untouched
+
+
 def test_cross_makerspace_transfer_rejects_individual_tracking():
     source = make_space("xfer-src4")
     dest = make_space("xfer-dst4")
