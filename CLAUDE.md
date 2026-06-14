@@ -77,7 +77,11 @@ superadmin-only control plane, with `PublicToolLoan`, `ReturnEvent`, `RequesterA
 `HardwareRequestItemAsset`, and `BoxScan` registered **read-only** (immutable/workflow-owned) and
 `MakerspaceMembership` editable; every makerspace-scoped `ModelAdmin` carries a `makerspace`
 `list_filter` so the superadmin can view/manage per makerspace. The admin remains superadmin-only by
-design (U-SEC) — per-makerspace staff still operate solely in the React console.
+design (U-SEC) — per-makerspace staff still operate solely in the React console. The Unfold sidebar
+(`config/unfold.py`) is curated into grouped sections (Inventory · Requests & loans · Operations · 3D
+printing · Accounts & access · Integrations · Audit & evidence) covering every registered model; a
+test (`tests/test_admin_registration.py`) asserts every sidebar `reverse_lazy` link resolves so a
+model rename can't silently break the nav.
 
 **Implementation is in progress.** Public inventory browse, staff auth/RBAC foundations,
 API-client HMAC support, QR/box foundations, Phase 3 audit/evidence
@@ -152,7 +156,10 @@ Implemented (open-source ops and reporting):
   audited return workflow as staff.
 - `apps.operations` with stock transfers, stocktake sessions/lines,
   inventory adjustments, analytics summaries, CSV/XLSX exports, QR print
-  batches, print-ready batch HTML, container APIs, and bulk asset QR generation.
+  batches with **bulk ZIP download** (`apps.operations.qr_zip.build_batch_zip`:
+  each QR is a captioned SVG — segno PNG-data-URI embedded in an SVG with the
+  name below, dependency-free; the old A4 print-HTML endpoint was removed),
+  container APIs, and bulk asset QR generation.
 - First-pass admin frontend panels for transfers, stocktake, reports, QR batches,
   compact operations navigation, saved local inventory views, inline details,
   and bulk public QR enable/disable actions.
@@ -251,9 +258,11 @@ cd backend && pytest
   `users/print-managers`), tenant frontend registry management, user
   restrict/restore, scoped API-client issuance, and audit-log reads.
 - `backend/apps/operations/` - open-source ops/reporting slice: health checks,
-  stock transfers, stocktake, inventory adjustments, analytics, CSV/XLSX report
-  exports, container/location APIs, QR print batches, print-ready QR batch HTML,
-  and serialized asset QR generation.
+  stock transfers (intra + true cross-makerspace movement), stocktake, inventory
+  adjustments, analytics, ledger, CSV/XLSX report exports, container/location
+  APIs, QR print batches with bulk ZIP download (`qr_zip.py`), and serialized
+  asset QR generation. `views.py` / `services.py` are thin re-export barrels over
+  domain submodules (`views_*`, `services_*`) to keep each file ≤200 LOC.
 - `backend/apps/integrations/` - Telegram message delivery, webhook callback
   routing through the hardware request workflow, and test-alert endpoint. The
   webhook authenticates Telegram's `X-Telegram-Bot-Api-Secret-Token` header
@@ -357,7 +366,7 @@ The goal is not just to ship code, but to understand why each production-quality
 
 - **Follow the global Claude config.** The gated workflow in `~/.claude/CLAUDE.md` (Stages 1–6, Codex delegation, mandatory review/QA gates) governs all work in this repo. Repo-specific rules below add to it; they do not override it.
 - **Document every API endpoint in Swagger / OpenAPI.** Every route in the API surface (PRD §14) must have an OpenAPI spec entry — request/response schemas, auth requirements, and error responses. Keep the spec in sync with the code; an undocumented endpoint is incomplete.
-- **Keep files modular — target ~200 lines per file, hard ceiling ~300.** One clear responsibility per file. When a module file grows past the target, split it (e.g. route handlers, validation, and service logic in separate files). The deep modules in §12 are logical boundaries, not single files.
+- **Keep files modular — target ~200 lines per file, hard ceiling ~300.** One clear responsibility per file. When a module file grows past the target, split it (e.g. route handlers, validation, and service logic in separate files). The deep modules in §12 are logical boundaries, not single files. **Established split pattern:** when an app's `views.py`/`serializers.py`/`admin.py`/`services.py` outgrows the ceiling, split classes/functions into domain submodules (`views_*`, `serializers_*`, `admin_*`, `services_*`) and keep the original file as a **thin re-export barrel** (explicit `from .submodule import (...)`, never `import *`) so `from app.views import X` and `views.X` keep resolving; for `admin.py` the barrel must still import the admin submodules so the `@admin.register` side effects fire. Every backend code file is within the ceiling **except `backend/config/settings.py`** — Django settings are conventionally a single file (accepted exception).
 - **Production-level code, not prototype code.** Validate all inputs at the boundary, handle external-service failure explicitly (especially the Check-In API — fail safe, never crash a request flow), use structured logging, return consistent typed error responses, and never leave `TODO`/stub auth or scoping in a merged path. Every state-changing endpoint must emit its audit log entry (PRD §11). Honor the immutability/append-only and makerspace-scoping invariants already documented below as enforced code, not convention.
 
 ## What This System Is
