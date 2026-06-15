@@ -2,6 +2,8 @@ import type React from "react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "../../../components/ui/Modal";
+import QrScanner from "../../../components/ui/QrScanner";
+import { staffRequest } from "../../../lib/api";
 import { EvidenceUpload } from "./EvidenceUpload";
 import type { HardwareRequest } from "./Queues";
 
@@ -24,6 +26,7 @@ export type AssignIssueValues = {
   evidenceId: number;
   remark: string;
   rejects: IssueReject[];
+  assetQrPayloads: string[];
 };
 
 export type ReturnRequestValues = {
@@ -106,12 +109,23 @@ export function RejectRequestModal({ row, open, pending, error, onClose, onSubmi
   );
 }
 
+type ScannedAsset = { payload: string; label: string };
+
 export function AssignIssueModal({ row, open, pending, error, onClose, onSubmit, makerspaceId }: FormModalProps<AssignIssueValues> & { makerspaceId: number }) {
   const [boxCode, setBoxCode] = useState(row?.assigned_box?.code ?? "");
   const [evidenceId, setEvidenceId] = useState<number | null>(null);
   const [remark, setRemark] = useState("Issued from staff app.");
   const [rejects, setRejects] = useState<Record<number, { broken: number; disposition: "needs_fix" | "remove" }>>({});
+  const [scanned, setScanned] = useState<ScannedAsset[]>([]);
+  const [showScanner, setShowScanner] = useState(false);
   const [validationError, setValidationError] = useState("");
+
+  // Individual-tracked items must be issued with one AVAILABLE asset QR per accepted unit
+  // (backend _issue_individual_assets expects exactly sum(accepted_quantity) payloads). The
+  // count is aggregate across all such items; broken-reject is blocked for them server-side.
+  const requiredScans = (row?.items ?? [])
+    .filter((item) => item.requires_asset_qr)
+    .reduce((sum, item) => sum + item.accepted_quantity, 0);
 
   useEffect(() => {
     if (open) {
@@ -119,9 +133,28 @@ export function AssignIssueModal({ row, open, pending, error, onClose, onSubmit,
       setEvidenceId(null);
       setRemark("Issued from staff app.");
       setRejects({});
+      setScanned([]);
+      setShowScanner(false);
       setValidationError("");
     }
   }, [open, row]);
+
+  const handleScan = async (payload: string) => {
+    const clean = payload.trim();
+    if (!clean || scanned.some((item) => item.payload === clean)) return;
+    let label = clean;
+    try {
+      const result = await staffRequest<{ target: { type: string; product?: string; asset_tag?: string } }>("/admin/qr/resolve", {
+        method: "POST",
+        body: JSON.stringify({ payload: clean }),
+      });
+      label = result.target.product || result.target.asset_tag || clean;
+    } catch {
+      label = clean;
+    }
+    setScanned((items) => (items.some((item) => item.payload === clean) ? items : [...items, { payload: clean, label }]));
+  };
+  const removeScanned = (payload: string) => setScanned((items) => items.filter((item) => item.payload !== payload));
 
   const setBroken = (itemId: number, broken: number) =>
     setRejects((current) => ({
@@ -156,10 +189,14 @@ export function AssignIssueModal({ row, open, pending, error, onClose, onSubmit,
               setValidationError(`Can't reject more than ${overflow.accepted_quantity} of ${overflow.product_name}.`);
               return;
             }
+            if (scanned.length !== requiredScans) {
+              setValidationError(`Scan exactly ${requiredScans} asset QR code(s) for the individually-tracked items (scanned ${scanned.length}).`);
+              return;
+            }
             const rejectList = Object.entries(rejects)
               .filter(([, value]) => value.broken > 0)
               .map(([itemId, value]) => ({ item_id: Number(itemId), broken: value.broken, disposition: value.disposition }));
-            onSubmit({ boxCode: boxCode.trim(), evidenceId, remark, rejects: rejectList });
+            onSubmit({ boxCode: boxCode.trim(), evidenceId, remark, rejects: rejectList, assetQrPayloads: scanned.map((item) => item.payload) });
           })
         }
       >
@@ -178,11 +215,41 @@ export function AssignIssueModal({ row, open, pending, error, onClose, onSubmit,
           <span className="font-medium text-ink">Remark</span>
           <textarea className="desk-input min-h-20 w-full resize-y" value={remark} disabled={pending} onChange={(event) => setRemark(event.target.value)} />
         </label>
+        {requiredScans > 0 ? (
+          <div className="grid gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-medium text-ink">Scan asset QR codes ({scanned.length}/{requiredScans})</p>
+              <button className="desk-button" type="button" disabled={pending} onClick={() => setShowScanner(true)}>Scan asset QR</button>
+            </div>
+            <p className="text-xs text-muted">Individually-tracked items need one AVAILABLE asset QR scanned per accepted unit.</p>
+            {scanned.length ? (
+              <div className="flex flex-wrap gap-2">
+                {scanned.map((item) => (
+                  <span key={item.payload} className="inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1 text-sm text-ink">
+                    {item.label}
+                    <button className="text-muted hover:text-danger" type="button" disabled={pending} onClick={() => removeScanned(item.payload)}>Remove</button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="grid gap-2">
           <p className="text-sm font-medium text-ink">Items — reject any broken units</p>
           {row?.items.map((item) => {
             const reject = rejects[item.id];
             const broken = reject?.broken ?? 0;
+            // Individual-tracked items can't be rejected-as-broken at handover (backend rule):
+            // they're issued as scanned asset rows and marked damaged on the specific unit at
+            // return. Show them read-only here so staff aren't offered an action that 400s.
+            if (item.requires_asset_qr) {
+              return (
+                <div key={item.id} className="rounded-md border border-line p-2">
+                  <p className="text-sm font-medium text-ink">{item.product_name} <span className="text-muted">×{item.accepted_quantity}</span></p>
+                  <p className="mt-1 text-xs text-muted">Individually tracked — issued by asset QR scan above.</p>
+                </div>
+              );
+            }
             return (
               <div key={item.id} className="rounded-md border border-line p-2">
                 <p className="text-sm font-medium text-ink">{item.product_name} <span className="text-muted">×{item.accepted_quantity}</span></p>
@@ -208,6 +275,7 @@ export function AssignIssueModal({ row, open, pending, error, onClose, onSubmit,
             );
           })}
         </div>
+        {showScanner ? <QrScanner onScan={handleScan} onClose={() => setShowScanner(false)} /> : null}
         <ErrorText message={validationError || error} />
       </form>
     </Modal>

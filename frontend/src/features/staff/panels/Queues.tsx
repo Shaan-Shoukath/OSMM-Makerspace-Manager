@@ -20,6 +20,8 @@ export type RequestItem = {
   id: number;
   product_id: number;
   product_name: string;
+  tracking_mode: string;
+  requires_asset_qr: boolean;
   requested_quantity: number;
   accepted_quantity: number;
   issued_quantity: number;
@@ -32,6 +34,9 @@ export type HardwareRequest = {
   id: number;
   status: string;
   requester_username: string;
+  requester_contact_email?: string;
+  requester_contact_phone?: string;
+  rejection_reason?: string;
   requested_for: string;
   return_due_at: string | null;
   return_reminder_sent_at: string | null;
@@ -65,6 +70,15 @@ export function Queues({ makerspace, guestOnly }: { makerspace: Makerspace; gues
   const active = useStaffGet<{ results: HardwareRequest[] }>(
     ["active", makerspace.id],
     `/admin/makerspace/${makerspace.id}/active-loans`,
+  );
+  const [showHistory, setShowHistory] = useState(false);
+  // Terminal requests (returned/rejected/closed_with_issue) only load when the staffer
+  // opens history — closed lists grow unbounded, so the third useStaffGet arg (enabled)
+  // defers the fetch until needed.
+  const history = useStaffGet<{ results: HardwareRequest[] }>(
+    ["request-history", makerspace.id],
+    `/admin/makerspace/${makerspace.id}/request-history`,
+    showHistory,
   );
   const action = useMutation({
     mutationFn: ({ path, body }: { path: string; body?: object }) =>
@@ -127,7 +141,12 @@ export function Queues({ makerspace, guestOnly }: { makerspace: Makerspace; gues
       });
       await action.mutateAsync({
         path: `/admin/requests/${assignIssueRow.id}/issue`,
-        body: { evidence_id: values.evidenceId, remark: values.remark, rejects: values.rejects },
+        body: {
+          evidence_id: values.evidenceId,
+          remark: values.remark,
+          rejects: values.rejects,
+          asset_qr_payloads: values.assetQrPayloads,
+        },
       });
       closeModals();
     } catch (error) {
@@ -202,6 +221,17 @@ export function Queues({ makerspace, guestOnly }: { makerspace: Makerspace; gues
           />
         </Panel>
       ) : null}
+      <Panel title="History">
+        <button type="button" className="text-sm text-accent" onClick={() => setShowHistory((value) => !value)}>
+          {showHistory ? "Hide history" : "Show history (returned / rejected / closed with issue)"}
+        </button>
+        {showHistory ? (
+          <div className="mt-3">
+            {history.isLoading ? <p className="text-sm text-muted">Loading history...</p> : null}
+            <RequestList rows={history.data?.results ?? []} actions={() => null} />
+          </div>
+        ) : null}
+      </Panel>
       <ConfirmDialog
         open={Boolean(acceptRow)}
         title="Accept request"

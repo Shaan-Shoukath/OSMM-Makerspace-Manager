@@ -22,6 +22,17 @@ export function RequestList({ rows, actions }: { rows: HardwareRequest[]; action
             <StatusStepper status={row.status} />
           </div>
           <p className="mt-2 text-sm text-muted">{row.requested_for || "No note"}</p>
+          {row.requester_contact_email || row.requester_contact_phone ? (
+            <p className="mt-1 text-xs text-muted">
+              <span className="font-medium text-ink">Contact: </span>
+              {[row.requester_contact_email, row.requester_contact_phone].filter(Boolean).join(" · ")}
+            </p>
+          ) : null}
+          {row.status === "rejected" && row.rejection_reason ? (
+            <p className="mt-1 text-xs text-danger">
+              <span className="font-medium">Rejected: </span>{row.rejection_reason}
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-muted">
             {row.return_due_at ? `Due ${new Date(row.return_due_at).toLocaleString()}` : "No return due time set"}
             {row.return_reminder_sent_at ? ` · reminder sent ${new Date(row.return_reminder_sent_at).toLocaleString()}` : ""}
@@ -29,6 +40,20 @@ export function RequestList({ rows, actions }: { rows: HardwareRequest[]; action
           <p className="mt-2 text-xs text-ink/60">
             {row.items.map((item) => `${item.product_name} x${item.requested_quantity}`).join(", ")}
           </p>
+          {row.items.some((item) => item.damaged_quantity || item.missing_quantity || item.needs_fix_quantity) ? (
+            <ul className="mt-1 text-xs text-danger">
+              {row.items
+                .filter((item) => item.damaged_quantity || item.missing_quantity || item.needs_fix_quantity)
+                .map((item) => (
+                  <li key={item.id}>
+                    {item.product_name}:
+                    {item.damaged_quantity ? ` ${item.damaged_quantity} damaged` : ""}
+                    {item.missing_quantity ? ` ${item.missing_quantity} missing` : ""}
+                    {item.needs_fix_quantity ? ` ${item.needs_fix_quantity} to-fix` : ""}
+                  </li>
+                ))}
+            </ul>
+          ) : null}
         </article>
       ))}
     </div>
