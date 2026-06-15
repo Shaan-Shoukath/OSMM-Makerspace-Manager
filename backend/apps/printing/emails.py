@@ -8,14 +8,19 @@ from apps.integrations.email import makerspace_mail_connection
 logger = logging.getLogger(__name__)
 
 _SUBJECTS = {
+    "submitted": "We received your makerspace print request",
     "accepted": "Your makerspace print request was accepted",
+    "started": "Your makerspace print request is now printing",
     "rejected": "Your makerspace print request was rejected",
-    "completed": "Your makerspace print request is complete",
+    "completed": "Your makerspace print request is ready to collect",
 }
 
 
 def send_print_email(event, print_request):
-    recipient = print_request.requester.email
+    # Public requests come from Check-In shadow users with no account email, so the
+    # reachable address is the contact_email captured on the request; fall back to the
+    # requester's account email for staff-created/authenticated requests.
+    recipient = print_request.contact_email or print_request.requester.email
     if not recipient:
         return
 

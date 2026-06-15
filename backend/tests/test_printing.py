@@ -334,19 +334,21 @@ def test_print_manager_accepts_starts_and_completes_with_audit_and_emails(
     assert audit.makerspace == makerspace
     assert audit.target_id == str(print_request.id)
 
-    response = client.post(action_url(print_request, "start"), format="json")
-    assert response.status_code == 200
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        response = client.post(action_url(print_request, "start"), format="json")
+        assert response.status_code == 200
+    assert len(callbacks) == 1
+    assert len(mail.outbox) == 2
     print_request.refresh_from_db()
     assert print_request.status == PrintRequest.Status.PRINTING
     assert AuditLog.objects.filter(action="print.started").count() == 1
-    assert len(mail.outbox) == 1
 
     with django_capture_on_commit_callbacks(execute=True) as callbacks:
         response = client.post(action_url(print_request, "complete"), format="json")
         assert response.status_code == 200
-        assert len(mail.outbox) == 1
+        assert len(mail.outbox) == 2
     assert len(callbacks) == 1
-    assert len(mail.outbox) == 2
+    assert len(mail.outbox) == 3
     print_request.refresh_from_db()
     assert print_request.status == PrintRequest.Status.COMPLETED
     assert print_request.completed_at is not None

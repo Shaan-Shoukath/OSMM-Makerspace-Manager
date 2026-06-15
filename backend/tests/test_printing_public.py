@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+from django.core import mail
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -234,3 +235,27 @@ def test_submit_attaches_owned_file(monkeypatch):
     assert upload.attached_at is not None
     assert upload.print_request is not None
     assert upload.size_bytes == 123
+
+
+def test_public_submit_emails_contact_email(settings, django_capture_on_commit_callbacks):
+    settings.EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
+    mail.outbox.clear()
+    makerspace = make_space("public-print-email")
+    enable_printing(makerspace)
+    bucket = make_bucket(makerspace)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        response = public_client().post(
+            submit_url(makerspace),
+            {
+                "identifier": "u@e.com",
+                "bucket_id": bucket.id,
+                "title": "Bracket",
+                "contact_email": "buyer@example.com",
+            },
+            format="json",
+        )
+
+    assert response.status_code == 201
+    assert len(mail.outbox) == 1
+    assert mail.outbox[0].to == ["buyer@example.com"]

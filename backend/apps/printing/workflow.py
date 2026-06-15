@@ -93,7 +93,7 @@ def _transition(
             makerspace=locked.bucket.makerspace,
             target=locked,
         )
-        if event in {"accepted", "rejected", "completed"}:
+        if event in {"accepted", "started", "rejected", "completed"}:
             transaction.on_commit(
                 lambda request_id=locked.pk, email_event=event: send_print_email(
                     email_event,

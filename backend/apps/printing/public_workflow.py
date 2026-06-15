@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from apps.accounts.models import User
 from apps.audit import services as audit
 from apps.hardware_requests.workflow_utils import get_or_create_requester
+from apps.printing.emails import send_print_email
 from apps.printing.models import PrintBucket, PrintRequest, PrintRequestFile
 from apps.printing.storage import print_object_size
 
@@ -78,4 +79,14 @@ def submit_public_print_request(makerspace, data, result):
                 )
 
         audit.record(requester, "print.submitted", makerspace=makerspace, target=request)
+        # Send the acknowledgement only after the row + file attachments commit, so a
+        # rolled-back submit never emails a "received" confirmation.
+        transaction.on_commit(
+            lambda request_id=request.pk: send_print_email(
+                "submitted",
+                PrintRequest.objects.select_related(
+                    "bucket__makerspace", "requester"
+                ).get(pk=request_id),
+            )
+        )
         return request
