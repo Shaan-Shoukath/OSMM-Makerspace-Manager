@@ -5906,6 +5906,35 @@
                 }
             }
         },
+        "/api/v1/printing/manage/files/{id}/url": {
+            "get": {
+                "operationId": "api_v1_printing_manage_files_url_retrieve",
+                "summary": "Get a signed view URL for a print request file",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Printing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/printing/manage/printed/": {
             "get": {
                 "operationId": "api_v1_printing_manage_printed_list",
@@ -7109,6 +7138,269 @@
                     },
                     "404": {
                         "description": "Not found."
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "api_v1_printing_manage_spools_destroy",
+                "summary": "Retrieve or update managed filament spool",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Printing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    },
+                    "409": {
+                        "description": "Spool is referenced by print requests."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        },
+                        "description": "Invalid request."
+                    },
+                    "401": {
+                        "description": "Authentication credentials were not provided."
+                    },
+                    "403": {
+                        "description": "Permission denied."
+                    },
+                    "404": {
+                        "description": "Not found."
+                    }
+                }
+            }
+        },
+        "/api/v1/printing/public/{makerspace_slug}/buckets": {
+            "get": {
+                "operationId": "api_v1_printing_public_buckets_list",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "makerspace_slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Public printing"
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/PublicPrintBucket"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/printing/public/{makerspace_slug}/checkin/verify": {
+            "post": {
+                "operationId": "api_v1_printing_public_checkin_verify_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "makerspace_slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Public printing"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintCheckinVerifyRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintCheckinVerifyRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintCheckinVerifyRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PrintCheckinVerifyResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/printing/public/{makerspace_slug}/requests": {
+            "post": {
+                "operationId": "api_v1_printing_public_requests_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "makerspace_slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Public printing"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintRequestSubmit"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintRequestSubmit"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintRequestSubmit"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PrintRequestSubmitResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/printing/public/{makerspace_slug}/uploads": {
+            "post": {
+                "operationId": "api_v1_printing_public_uploads_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "makerspace_slug",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Public printing"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintPresignRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintPresignRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PrintPresignRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PrintPresignResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/printing/public/requests/{public_token}/status": {
+            "get": {
+                "operationId": "api_v1_printing_public_requests_status_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "public_token",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Public printing"
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PublicPrintStatus"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -9775,14 +10067,6 @@
                     "evidence_id"
                 ]
             },
-            "KindEnum": {
-                "enum": [
-                    "hardware",
-                    "printing"
-                ],
-                "type": "string",
-                "description": "* `hardware` - Hardware\n* `printing` - Printing"
-            },
             "LedgerResponse": {
                 "type": "object",
                 "properties": {
@@ -11103,7 +11387,7 @@
                     "kind": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/KindEnum"
+                                "$ref": "#/components/schemas/ToBuyItemKindEnum"
                             }
                         ],
                         "readOnly": true
@@ -11194,6 +11478,80 @@
                     "makerspace",
                     "name",
                     "updated_at"
+                ]
+            },
+            "PrintCheckinVerifyRequest": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "identifier"
+                ]
+            },
+            "PrintCheckinVerifyResponse": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string"
+                    },
+                    "external_id": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "external_id",
+                    "username"
+                ]
+            },
+            "PrintPresignRequest": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type": "string"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/PrintPresignRequestKindEnum"
+                    },
+                    "filename": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "maxLength": 128
+                    }
+                },
+                "required": [
+                    "filename",
+                    "identifier",
+                    "kind"
+                ]
+            },
+            "PrintPresignRequestKindEnum": {
+                "enum": [
+                    "stl",
+                    "screenshot"
+                ],
+                "type": "string",
+                "description": "* `stl` - stl\n* `screenshot` - screenshot"
+            },
+            "PrintPresignResponse": {
+                "type": "object",
+                "properties": {
+                    "file_id": {
+                        "type": "integer"
+                    },
+                    "upload": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "required": [
+                    "file_id",
+                    "upload"
                 ]
             },
             "PrintPrinter": {
@@ -11357,6 +11715,23 @@
                         "format": "uri",
                         "readOnly": true
                     },
+                    "project_brief": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "contact_email": {
+                        "type": "string",
+                        "format": "email",
+                        "readOnly": true
+                    },
+                    "contact_phone": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "files": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "status": {
                         "allOf": [
                             {
@@ -11433,12 +11808,15 @@
                     "bucket",
                     "color",
                     "completed_at",
+                    "contact_email",
+                    "contact_phone",
                     "created_at",
                     "description",
                     "estimate_screenshot",
                     "estimated_filament_grams",
                     "estimated_minutes",
                     "filament_spool",
+                    "files",
                     "handled_by",
                     "id",
                     "makerspace",
@@ -11447,6 +11825,7 @@
                     "preferred_settings",
                     "preview_screenshot",
                     "printer",
+                    "project_brief",
                     "quantity",
                     "reason",
                     "requester",
@@ -11525,6 +11904,82 @@
                 ],
                 "type": "string",
                 "description": "* `pending` - Pending\n* `accepted` - Accepted\n* `printing` - Printing\n* `completed` - Completed\n* `rejected` - Rejected\n* `failed` - Failed"
+            },
+            "PrintRequestSubmit": {
+                "type": "object",
+                "properties": {
+                    "website": {
+                        "type": "string"
+                    },
+                    "identifier": {
+                        "type": "string"
+                    },
+                    "bucket_id": {
+                        "type": "integer"
+                    },
+                    "title": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "project_brief": {
+                        "type": "string"
+                    },
+                    "preferred_settings": {
+                        "type": "string"
+                    },
+                    "material": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "color": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "quantity": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "default": 1
+                    },
+                    "source_link": {
+                        "type": "string"
+                    },
+                    "contact_email": {
+                        "type": "string"
+                    },
+                    "contact_phone": {
+                        "type": "string"
+                    },
+                    "file_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "required": [
+                    "bucket_id",
+                    "identifier",
+                    "title"
+                ]
+            },
+            "PrintRequestSubmitResponse": {
+                "type": "object",
+                "properties": {
+                    "public_token": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "public_token",
+                    "status"
+                ]
             },
             "PrintStart": {
                 "type": "object",
@@ -11851,6 +12306,68 @@
                     "name",
                     "public_code",
                     "slug"
+                ]
+            },
+            "PublicPrintBucket": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "description",
+                    "id",
+                    "name"
+                ]
+            },
+            "PublicPrintStatus": {
+                "type": "object",
+                "properties": {
+                    "public_token": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "title": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "accepted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "completed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "accepted_at",
+                    "completed_at",
+                    "created_at",
+                    "public_token",
+                    "started_at",
+                    "status",
+                    "title"
                 ]
             },
             "PublicProduct": {
@@ -13120,7 +13637,7 @@
                     "kind": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/KindEnum"
+                                "$ref": "#/components/schemas/ToBuyItemKindEnum"
                             }
                         ],
                         "readOnly": true
@@ -13178,6 +13695,14 @@
                     "name",
                     "updated_at"
                 ]
+            },
+            "ToBuyItemKindEnum": {
+                "enum": [
+                    "hardware",
+                    "printing"
+                ],
+                "type": "string",
+                "description": "* `hardware` - Hardware\n* `printing` - Printing"
             },
             "ToBuyItemStatusEnum": {
                 "enum": [

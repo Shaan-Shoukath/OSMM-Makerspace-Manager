@@ -252,7 +252,13 @@ cd backend && pytest
   `UPLOAD_EVIDENCE` permission plus active account status.
 - `backend/apps/boxes/` - Box QR payloads plus immutable `BoxScan` records for
   issue/return scan history, generalized `QrCode`, and immutable `QrScanEvent`
-  records for box/product/asset/scanner lookup scans.
+  records for box/product/asset/scanner lookup scans. `qr_render.py`
+  (`render_qr_label_svg`) renders a **namespaced standalone SVG** (segno PNG-data-URI
+  embedded) shared by the QR-print view and the batch ZIP, so the staff `<img>` data-URI
+  isn't a broken bare `svg_inline`. Staff direct handout supports **multiple items** and a
+  real in-browser **camera QR scanner** (`frontend/src/components/ui/QrScanner.tsx`:
+  native `BarcodeDetector` with a dynamic-imported `zxing-wasm` fallback) that resolves via
+  `/admin/qr/resolve` and appends the scanned product/asset to the loan.
 - `backend/apps/admin_api/` - staff REST surface for makerspaces, inventory CRUD,
   per-makerspace category CRUD (`makerspace/<id>/categories` + `categories/<pk>`,
   gated by `EDIT_INVENTORY` so Space + Inventory Managers manage their own
@@ -296,7 +302,25 @@ cd backend && pytest
   single source of truth for request transitions (row-locked + audited);
   `permissions.py` provides `CanManagePrinting` action-aware 403/404; `emails.py`
   sends fail-safe branded SMTP notifications. Templates in
-  `backend/templates/email/`.
+  `backend/templates/email/`. **Public 3D-print requests** mirror the
+  hardware-request public posture exactly: `public_views.py`/`public_serializers.py`/
+  `public_workflow.py` expose `/api/v1/printing/public/<slug>/{buckets,checkin/verify,
+  uploads,requests}` + `/api/v1/printing/public/requests/<uuid:public_token>/status`
+  (AllowAny + `ClientTierRateThrottle`, Check-In verify, honeypot-before-serializer decoy,
+  `print_request_submit` throttle scope, atomic submit, no-PII/no-enumeration status by
+  `public_token` + `external_checkin_user_id`). Multiple STL + screenshot uploads use a
+  printing-specific presign (`storage.py`: server-generated `print/` keys, MIME/size
+  allowlists, `PRINT_UPLOAD_MAX_BYTES`) staged as `PrintRequestFile` rows
+  (`print_request` nullable + `owner_checkin_user_id` + `attached_at`) that submit attaches
+  one-time inside the same transaction (`select_for_update`, owner+unattached+object_exists
+  checks). `PrintRequest` gained `public_token`, `project_brief`, `contact_email/phone`;
+  status emails route to `contact_email` (shadow users have no account email) and now cover
+  submitted/accepted/started/completed("ready to collect")/rejected. Staff see brief/contact
+  and download attached files via short-lived **signed view URLs**
+  (`manage/files/<pk>/url`, never raw object keys). Filament spools are now deletable
+  (409 when referenced by a request — FK is `SET_NULL`). Frontend: public
+  `frontend/src/features/printing/` (request page + status stepper) linked from the public
+  catalog when the `printing` module is on.
 - `backend/apps/procurement/` — per-makerspace **"To Buy" / shopping list**
   (`ToBuyItem`: name, quantity, link, status pending|bought, estimated_unit_cost,
   `kind` hardware|printing). The stream is decided **server-side from the actor's
