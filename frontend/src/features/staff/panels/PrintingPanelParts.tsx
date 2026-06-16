@@ -41,6 +41,8 @@ export type PrintRequest = {
   color: string;
   estimated_minutes: number;
   estimated_filament_grams: string;
+  filament_grams_used?: string;
+  reprint_of?: number | null;
   printer: PrintPrinter | null;
   filament_spool: FilamentSpool | null;
   requested_filament_spool?: FilamentSpool | null;

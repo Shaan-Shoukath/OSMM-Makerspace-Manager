@@ -58,9 +58,13 @@ class PrintRequestSerializer(serializers.ModelSerializer):
         source="requester.username", read_only=True
     )
     handled_by = serializers.IntegerField(source="handled_by_id", read_only=True)
+    reprint_of = serializers.IntegerField(source="reprint_of_id", read_only=True)
     files = serializers.SerializerMethodField()
 
     def get_files(self, obj):
+        files = list(obj.files.all())
+        if not files and obj.reprint_of_id:
+            files = list(obj.reprint_of.files.all())
         return [
             {
                 "id": f.id,
@@ -68,7 +72,7 @@ class PrintRequestSerializer(serializers.ModelSerializer):
                 "content_type": f.content_type,
                 "size_bytes": f.size_bytes,
             }
-            for f in obj.files.all()
+            for f in files
         ]
 
     class Meta:
@@ -103,6 +107,8 @@ class PrintRequestSerializer(serializers.ModelSerializer):
             "requested_filament_spool",
             "estimated_minutes",
             "estimated_filament_grams",
+            "filament_grams_used",
+            "reprint_of",
             "created_at",
             "accepted_at",
             "started_at",
@@ -114,6 +120,16 @@ class PrintRequestSerializer(serializers.ModelSerializer):
 
 class RejectFailSerializer(serializers.Serializer):
     reason = serializers.CharField(allow_blank=False, trim_whitespace=True)
+
+
+class FailPrintSerializer(serializers.Serializer):
+    reason = serializers.CharField(allow_blank=False, trim_whitespace=True)
+    percent_complete = serializers.IntegerField(
+        min_value=0,
+        max_value=100,
+        required=False,
+        default=0,
+    )
 
 
 class PrintStartSerializer(serializers.Serializer):

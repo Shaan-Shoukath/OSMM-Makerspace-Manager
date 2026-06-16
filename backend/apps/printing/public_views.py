@@ -147,6 +147,7 @@ class PrintUploadPresignView(APIView):
             kind=data["kind"],
             object_key=object_key,
             content_type=content_type,
+            original_filename=data["filename"],
             owner_checkin_user_id=result.external_id,
         )
         upload = presigned_print_upload(object_key, content_type)

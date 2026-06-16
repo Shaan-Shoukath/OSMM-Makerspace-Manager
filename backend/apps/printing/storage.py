@@ -1,7 +1,9 @@
+import mimetypes
 import uuid
 
 from botocore.exceptions import BotoCoreError, ClientError
 from django.conf import settings
+from django.utils.http import content_disposition_header
 
 from apps.evidence.storage import _client, _public_client, StorageUnavailable, object_exists
 
@@ -62,11 +64,45 @@ def presigned_print_upload(object_key, content_type):
         raise StorageUnavailable from exc
 
 
-def print_get_url(object_key):
+def _download_disposition(filename, content_type):
+    raw_name = filename or ""
+    safe_name = raw_name.replace("\\", "/").rsplit("/", 1)[-1]
+    safe_name = "".join(
+        char
+        for char in safe_name
+        if char != '"' and ord(char) >= 0x20 and ord(char) != 0x7F
+    )
+    if not safe_name:
+        extension_by_type = {
+            "model/stl": ".stl",
+            "model/3mf": ".3mf",
+            "application/octet-stream": "",
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/webp": ".webp",
+            "application/pdf": ".pdf",
+        }
+        extension = extension_by_type.get(
+            content_type,
+            mimetypes.guess_extension(content_type or "") or "",
+        )
+        safe_name = f"download{extension}"
+    return content_disposition_header(as_attachment=True, filename=safe_name)
+
+
+def print_get_url(object_key, *, filename=None, content_type=None, as_attachment=False):
+    params = {"Bucket": settings.AWS_STORAGE_BUCKET_NAME, "Key": object_key}
+    if content_type:
+        params["ResponseContentType"] = content_type
+    if as_attachment:
+        params["ResponseContentDisposition"] = _download_disposition(
+            filename,
+            content_type,
+        )
     try:
         return _public_client().generate_presigned_url(
             "get_object",
-            Params={"Bucket": settings.AWS_STORAGE_BUCKET_NAME, "Key": object_key},
+            Params=params,
             ExpiresIn=settings.PRINT_URL_TTL_SECONDS,
         )
     except (BotoCoreError, ClientError) as exc:

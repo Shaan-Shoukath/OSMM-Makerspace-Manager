@@ -48,7 +48,7 @@ export function PrintQueueSection({ makerspace }: { makerspace: Makerspace }) {
   const [rejectingRequest, setRejectingRequest] = useState<PrintRequest | null>(null);
 
   const action = useMutation({
-    mutationFn: ({ request, name, reason }: { request: PrintRequest; name: "start" | "complete" | "fail" | "accept" | "reject"; reason?: string }) => {
+    mutationFn: ({ request, name, reason, percentComplete }: { request: PrintRequest; name: "start" | "complete" | "fail" | "accept" | "reject" | "reprint"; reason?: string; percentComplete?: number }) => {
       const body =
         name === "start"
           ? {
@@ -57,9 +57,11 @@ export function PrintQueueSection({ makerspace }: { makerspace: Makerspace }) {
               estimated_minutes: Number(estimatedMinutes),
               estimated_filament_grams: estimatedGrams,
             }
-          : name === "fail" || name === "reject"
-            ? { reason }
-            : {};
+          : name === "fail"
+            ? { reason, percent_complete: percentComplete ?? 0 }
+            : name === "reject"
+              ? { reason }
+              : {};
       return printingRequest(`/printing/manage/requests/${request.id}/${name}`, {
         method: "POST",
         body: JSON.stringify(body),
@@ -95,19 +97,36 @@ export function PrintQueueSection({ makerspace }: { makerspace: Makerspace }) {
         )} />
       </div>
 
+      <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Start-on-printer settings</p>
+      <p className="mb-2 text-xs text-muted">Used by “Start on printer” below — not by Accept.</p>
+      {startablePrinters.length === 0 ? (
+        <p className="mb-2 text-xs text-warn">No active printer — add or activate one on the 3D Printing tab.</p>
+      ) : null}
       <div className="mb-3 grid gap-2 md:grid-cols-4">
-        <select className="desk-input" value={selectedPrinter} onChange={(event) => setSelectedPrinter(event.target.value)}>
-          <option value="">Printer</option>
-          {startablePrinters.map((printer) => <option key={printer.id} value={printer.id}>{printer.name}</option>)}
-        </select>
-        <select className="desk-input" value={selectedSpool} onChange={(event) => setSelectedSpool(event.target.value)}>
-          <option value="">Spool</option>
-          {spoolRows
-            .filter((spool) => spool.is_active && (!selectedPrinter || spool.printer === Number(selectedPrinter) || spool.printer === null))
-            .map((spool) => <option key={spool.id} value={spool.id}>{[spool.material, spool.color].filter(Boolean).join(" ")} ({spool.remaining_weight_grams}g)</option>)}
-        </select>
-        <input className="desk-input" type="number" min="0" value={estimatedMinutes} onChange={(event) => setEstimatedMinutes(event.target.value)} />
-        <input className="desk-input" type="number" min="0" value={estimatedGrams} onChange={(event) => setEstimatedGrams(event.target.value)} />
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Printer</span>
+          <select className="desk-input w-full" value={selectedPrinter} onChange={(event) => setSelectedPrinter(event.target.value)}>
+            <option value="">Printer</option>
+            {startablePrinters.map((printer) => <option key={printer.id} value={printer.id}>{printer.name}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Spool</span>
+          <select className="desk-input w-full" value={selectedSpool} onChange={(event) => setSelectedSpool(event.target.value)}>
+            <option value="">Spool</option>
+            {spoolRows
+              .filter((spool) => spool.is_active && (!selectedPrinter || spool.printer === Number(selectedPrinter) || spool.printer === null))
+              .map((spool) => <option key={spool.id} value={spool.id}>{[spool.material, spool.color].filter(Boolean).join(" ")} ({spool.remaining_weight_grams}g)</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Print time (min)</span>
+          <input className="desk-input w-full" type="number" min="0" value={estimatedMinutes} onChange={(event) => setEstimatedMinutes(event.target.value)} />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">Filament (g)</span>
+          <input className="desk-input w-full" type="number" min="0" value={estimatedGrams} onChange={(event) => setEstimatedGrams(event.target.value)} />
+        </label>
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         <PrintRows title="Accepted" rows={accepted.data?.results ?? []} action={(row) => (
@@ -131,7 +150,11 @@ export function PrintQueueSection({ makerspace }: { makerspace: Makerspace }) {
           <div className="mt-3 grid gap-3 lg:grid-cols-3">
             <PrintRows title="Completed" rows={completed.data?.results ?? []} action={() => null} />
             <PrintRows title="Rejected" rows={rejected.data?.results ?? []} action={() => null} />
-            <PrintRows title="Failed" rows={failed.data?.results ?? []} action={() => null} />
+            <PrintRows title="Failed" rows={failed.data?.results ?? []} action={(row) => (
+              <button disabled={action.isPending} onClick={() => action.mutate({ request: row, name: "reprint" })}>
+                {action.isPending ? "..." : "Reprint"}
+              </button>
+            )} />
           </div>
         ) : null}
       </div>
@@ -145,8 +168,9 @@ export function PrintQueueSection({ makerspace }: { makerspace: Makerspace }) {
         open={Boolean(failingRequest)}
         pending={action.isPending}
         error={failingRequest ? actionError : undefined}
+        showPercent
         onClose={() => setFailingRequest(null)}
-        onSubmit={(reason) => failingRequest && action.mutate({ request: failingRequest, name: "fail", reason })}
+        onSubmit={(reason, percentComplete) => failingRequest && action.mutate({ request: failingRequest, name: "fail", reason, percentComplete })}
       />
       <FailPrintDialog
         open={Boolean(rejectingRequest)}

@@ -6918,17 +6918,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/RejectFail"
+                                "$ref": "#/components/schemas/FailPrint"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/RejectFail"
+                                "$ref": "#/components/schemas/FailPrint"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/RejectFail"
+                                "$ref": "#/components/schemas/FailPrint"
                             }
                         }
                     },
@@ -7026,6 +7026,71 @@
                 ],
                 "responses": {
                     "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PrintRequest"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        },
+                        "description": "Invalid request."
+                    },
+                    "401": {
+                        "description": "Authentication credentials were not provided."
+                    },
+                    "403": {
+                        "description": "Permission denied."
+                    },
+                    "404": {
+                        "description": "Not found."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        },
+                        "description": "Invalid status transition."
+                    }
+                }
+            }
+        },
+        "/api/v1/printing/manage/requests/{id}/reprint": {
+            "post": {
+                "operationId": "api_v1_printing_manage_requests_reprint_create",
+                "summary": "Reprint a failed print request",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Printing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -10261,6 +10326,23 @@
                     "upload_url"
                 ]
             },
+            "FailPrint": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string"
+                    },
+                    "percent_complete": {
+                        "type": "integer",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "default": 0
+                    }
+                },
+                "required": [
+                    "reason"
+                ]
+            },
             "FilamentSpool": {
                 "type": "object",
                 "properties": {
@@ -12379,6 +12461,16 @@
                         "pattern": "^-?\\d{0,6}(?:\\.\\d{0,2})?$",
                         "readOnly": true
                     },
+                    "filament_grams_used": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,6}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "reprint_of": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -12420,6 +12512,7 @@
                     "estimate_screenshot",
                     "estimated_filament_grams",
                     "estimated_minutes",
+                    "filament_grams_used",
                     "filament_spool",
                     "files",
                     "handled_by",
@@ -12433,6 +12526,7 @@
                     "project_brief",
                     "quantity",
                     "reason",
+                    "reprint_of",
                     "requested_filament_spool",
                     "requester",
                     "requester_email",
@@ -12633,6 +12727,12 @@
                             "$ref": "#/components/schemas/PrintingReportPrinterHours"
                         }
                     },
+                    "printer_outcomes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PrintingReportPrinterOutcome"
+                        }
+                    },
                     "filament_used": {
                         "type": "array",
                         "items": {
@@ -12664,6 +12764,7 @@
                     "filament_estimated_by_period",
                     "filament_used",
                     "printer_hours",
+                    "printer_outcomes",
                     "top_requesters",
                     "total_grams_used",
                     "totals"
@@ -12788,6 +12889,37 @@
                 "required": [
                     "completed_requests",
                     "hours",
+                    "printer_id",
+                    "printer_name"
+                ]
+            },
+            "PrintingReportPrinterOutcome": {
+                "type": "object",
+                "properties": {
+                    "printer_id": {
+                        "type": "integer"
+                    },
+                    "printer_name": {
+                        "type": "string"
+                    },
+                    "completed": {
+                        "type": "integer"
+                    },
+                    "failed": {
+                        "type": "integer"
+                    },
+                    "grams_used": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "makerspace_id": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "completed",
+                    "failed",
+                    "grams_used",
                     "printer_id",
                     "printer_name"
                 ]

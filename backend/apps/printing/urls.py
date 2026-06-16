@@ -28,6 +28,7 @@ from apps.printing.views import (
     PrintRequestDetailView,
     PrintRequestFailView,
     PrintRequestRejectView,
+    PrintRequestReprintView,
     PrintRequestStartView,
     PrintedListView,
 )
@@ -137,6 +138,11 @@ urlpatterns = [
         "manage/requests/<int:pk>/fail",
         PrintRequestFailView.as_view(),
         name="managed-request-fail",
+    ),
+    path(
+        "manage/requests/<int:pk>/reprint",
+        PrintRequestReprintView.as_view(),
+        name="managed-request-reprint",
     ),
     path(
         "manage/files/<int:pk>/url",

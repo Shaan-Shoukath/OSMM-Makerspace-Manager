@@ -469,6 +469,7 @@ def test_presign_rejects_bad_mime_and_accepts_good(monkeypatch):
     assert response.status_code == 201
     assert "file_id" in response.data
     assert "upload" in response.data
+    assert PrintRequestFile.objects.get(pk=response.data["file_id"]).original_filename == "p.stl"
 
 
 def test_submit_rejects_foreign_file_id(monkeypatch):

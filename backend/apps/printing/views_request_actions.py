@@ -6,6 +6,7 @@ from apps.makerspaces.guards import require_module
 from apps.printing import workflow
 from apps.printing.permissions import CanManagePrinting
 from apps.printing.serializers import (
+    FailPrintSerializer,
     PrintRequestSerializer,
     PrintStartSerializer,
     RejectFailSerializer,
@@ -54,6 +55,10 @@ class PrintRequestActionView(ManagedPrintRequestQuerysetMixin, generics.GenericA
                     print_request,
                     request.user,
                     input_serializer.validated_data["reason"],
+                    percent_complete=input_serializer.validated_data.get(
+                        "percent_complete",
+                        0,
+                    ),
                 )
             else:
                 raise AssertionError("Unknown print action.")
@@ -112,11 +117,37 @@ class PrintRequestCompleteView(PrintRequestActionView):
 @extend_schema(tags=["Printing"], summary="Mark print request failed")
 class PrintRequestFailView(PrintRequestActionView):
     action = "fail"
-    request_serializer_class = RejectFailSerializer
+    request_serializer_class = FailPrintSerializer
 
     @extend_schema(
-        request=RejectFailSerializer,
+        request=FailPrintSerializer,
         responses={200: PrintRequestSerializer, **ACTION_RESPONSES},
     )
     def post(self, request, *args, **kwargs):
         return super().post(request, *args, **kwargs)
+
+
+@extend_schema(
+    tags=["Printing"],
+    summary="Reprint a failed print request",
+    request=None,
+    responses={201: PrintRequestSerializer, **ACTION_RESPONSES},
+)
+class PrintRequestReprintView(
+    ManagedPrintRequestQuerysetMixin,
+    generics.GenericAPIView,
+):
+    permission_classes = [CanManagePrinting]
+    serializer_class = PrintRequestSerializer
+
+    def post(self, request, *args, **kwargs):
+        print_request = self.get_object()
+        require_module(print_request.bucket.makerspace, "printing")
+        try:
+            updated = workflow.reprint(print_request, request.user)
+        except workflow.InvalidTransition as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+        return Response(
+            PrintRequestSerializer(updated, context=self.get_serializer_context()).data,
+            status=status.HTTP_201_CREATED,
+        )

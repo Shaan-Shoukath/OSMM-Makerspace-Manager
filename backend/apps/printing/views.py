@@ -40,6 +40,7 @@ from apps.printing.views_request_actions import (
     PrintRequestCompleteView,
     PrintRequestFailView,
     PrintRequestRejectView,
+    PrintRequestReprintView,
     PrintRequestStartView,
 )
 from apps.printing.views_spools import (
@@ -80,6 +81,7 @@ __all__ = [
     "PrintRequestDetailView",
     "PrintRequestFailView",
     "PrintRequestRejectView",
+    "PrintRequestReprintView",
     "PrintRequestSerializer",
     "PrintRequestStartView",
     "PrintStartSerializer",

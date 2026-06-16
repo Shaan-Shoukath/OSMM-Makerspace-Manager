@@ -5,6 +5,7 @@ from apps.printing.models import FilamentSpool, PrintBucket, PrintPrinter, Print
 from apps.printing.serializers_buckets import ErrorSerializer, PrintBucketSerializer
 from apps.printing.serializers_printers import PrintPrinterSerializer
 from apps.printing.serializers_requests import (
+    FailPrintSerializer,
     PrintRequestCreateSerializer,
     PrintRequestSerializer,
     PrintStartSerializer,
@@ -18,6 +19,7 @@ from apps.printing.serializers_spools import (
 __all__ = [
     "ErrorSerializer",
     "FilamentSpool",
+    "FailPrintSerializer",
     "FilamentSpoolSerializer",
     "FilamentSpoolSummarySerializer",
     "Makerspace",

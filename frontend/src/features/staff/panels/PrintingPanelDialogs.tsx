@@ -57,22 +57,35 @@ export function SpoolEditDialog({ spool, printers, pending, error, onClose, onSu
 
 // A free-text "reason" dialog shared by Fail print (default copy) and Reject request
 // (pass title/submitLabel/placeholder). Both backends require a non-blank reason
-// (RejectFailSerializer), so the submit stays disabled until text is entered.
-export function FailPrintDialog({ open, pending, error, onClose, onSubmit, title = "Fail print", submitLabel = "Submit failure", placeholder = "Failure reason" }: {
+// (RejectFailSerializer), so the submit stays disabled until text is entered. When
+// showPercent is set (Fail print), a "% completed at failure" field is shown so the
+// spool can be charged for the wasted filament (grams x percent / 100).
+export function FailPrintDialog({ open, pending, error, onClose, onSubmit, title = "Fail print", submitLabel = "Submit failure", placeholder = "Failure reason", showPercent = false }: {
   open: boolean;
   pending: boolean;
   error?: string;
   onClose: () => void;
-  onSubmit: (reason: string) => void;
+  onSubmit: (reason: string, percentComplete: number) => void;
   title?: string;
   submitLabel?: string;
   placeholder?: string;
+  showPercent?: boolean;
 }) {
   const [reason, setReason] = useState("");
-  useEffect(() => { if (open) setReason(""); }, [open]);
+  const [percent, setPercent] = useState("0");
+  useEffect(() => { if (open) { setReason(""); setPercent("0"); } }, [open]);
+  // Clamp to 0-100 so a stray value can't over-charge the spool; the backend re-validates.
+  const percentValue = Math.min(100, Math.max(0, Math.round(Number(percent) || 0)));
   return (
-    <Modal open={open} onClose={onClose} title={title} footer={<DialogActions pending={pending} disabled={!reason.trim()} submitLabel={submitLabel} onCancel={onClose} onSubmit={() => onSubmit(reason.trim())} />}>
+    <Modal open={open} onClose={onClose} title={title} footer={<DialogActions pending={pending} disabled={!reason.trim()} submitLabel={submitLabel} onCancel={onClose} onSubmit={() => onSubmit(reason.trim(), percentValue)} />}>
       <textarea className="desk-input min-h-28 w-full" placeholder={placeholder} value={reason} onChange={(event) => setReason(event.target.value)} />
+      {showPercent ? (
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-muted">% completed at failure</span>
+          <input className="desk-input w-full" type="number" min="0" max="100" value={percent} onChange={(event) => setPercent(event.target.value)} />
+          <span className="mt-1 block text-xs text-muted">Charges the spool for filament used so far. Reprint, when completed, charges the full amount.</span>
+        </label>
+      ) : null}
       <ErrorText message={error} />
     </Modal>
   );

@@ -12,6 +12,14 @@ export type PrintingReport = {
     hours: number;
     makerspace_id?: number;
   }[];
+  printer_outcomes: {
+    printer_id: number;
+    printer_name: string;
+    completed: number;
+    failed: number;
+    grams_used: number;
+    makerspace_id?: number;
+  }[];
   filament_used: {
     spool_id: number;
     material: string;
@@ -132,6 +140,23 @@ export function PrintingReportSection({ makerspace, aggregate }: { makerspace: M
                       aggregate
                         ? [row.makerspace_id ?? "", row.printer_name, row.completed_requests, row.hours]
                         : [row.printer_name, row.completed_requests, row.hours],
+                    ),
+                  ],
+                }}
+              />
+            </div>
+            <div>
+              <h3 className="mb-2 text-sm font-semibold text-ink">Printer outcomes (success / fail / grams)</h3>
+              <ReportTable
+                data={{
+                  rows: [
+                    aggregate
+                      ? ["makerspace_id", "printer", "completed", "failed", "grams_used"]
+                      : ["printer", "completed", "failed", "grams_used"],
+                    ...(printing.data?.printer_outcomes ?? []).map((row) =>
+                      aggregate
+                        ? [row.makerspace_id ?? "", row.printer_name, row.completed, row.failed, row.grams_used]
+                        : [row.printer_name, row.completed, row.failed, row.grams_used],
                     ),
                   ],
                 }}

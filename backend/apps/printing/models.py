@@ -191,6 +191,18 @@ class PrintRequest(models.Model):
         default=0,
         validators=[MinValueValidator(0)],
     )
+    filament_grams_used = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=0,
+    )
+    reprint_of = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reprints",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     accepted_at = models.DateTimeField(null=True, blank=True)
     started_at = models.DateTimeField(null=True, blank=True)
@@ -242,6 +254,7 @@ class PrintRequestFile(models.Model):
     kind = models.CharField(max_length=16, choices=Kind.choices)
     object_key = models.CharField(max_length=255, unique=True)
     content_type = models.CharField(max_length=128, blank=True)
+    original_filename = models.CharField(max_length=255, blank=True, default="")
     size_bytes = models.PositiveBigIntegerField(default=0)
     owner_checkin_user_id = models.CharField(max_length=255, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)

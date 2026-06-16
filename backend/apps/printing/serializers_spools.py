@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers
 
 from apps.makerspaces.models import Makerspace
@@ -85,6 +86,16 @@ class FilamentSpoolSerializer(serializers.ModelSerializer):
         )
 
     def update(self, instance, validated_data):
-        if "makerspace_id" in validated_data:
-            instance.makerspace_id = validated_data.pop("makerspace_id")
-        return super().update(instance, validated_data)
+        with transaction.atomic():
+            locked = FilamentSpool.objects.select_for_update().get(pk=instance.pk)
+            update_fields = []
+            if "makerspace_id" in validated_data:
+                locked.makerspace_id = validated_data.pop("makerspace_id")
+                update_fields.append("makerspace")
+            for attr, value in validated_data.items():
+                setattr(locked, attr, value)
+                update_fields.append(attr)
+            if update_fields:
+                update_fields.append("updated_at")
+                locked.save(update_fields=update_fields)
+            return locked

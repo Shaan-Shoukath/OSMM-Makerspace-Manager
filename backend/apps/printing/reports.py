@@ -26,6 +26,7 @@ def build_printing_report(makerspace_id=None, *, include_makerspace=False):
     return {
         "totals": _totals(requests),
         "printer_hours": _printer_hours(requests, include_makerspace),
+        "printer_outcomes": _printer_outcomes(requests, include_makerspace),
         "filament_used": _filament_used(spools, include_makerspace),
         "filament_by_brand": _filament_by_brand(spools),
         "top_requesters": _top_requesters(requests, include_makerspace),
@@ -76,6 +77,41 @@ def _printer_hours(requests, include_makerspace):
             "printer_name": row["printer__name"],
             "completed_requests": row["completed_requests"],
             "hours": round((row["minutes"] or 0) / 60, 1),
+        }
+        if include_makerspace:
+            item["makerspace_id"] = row["printer__makerspace_id"]
+        data.append(item)
+    return data
+
+
+def _printer_outcomes(requests, include_makerspace):
+    from django.db.models import Q
+    from django.db.models.functions import Coalesce
+
+    qs = requests.filter(
+        printer__isnull=False,
+        status__in=[PrintRequest.Status.COMPLETED, PrintRequest.Status.FAILED],
+    )
+    values = ["printer_id", "printer__name"]
+    if include_makerspace:
+        values.append("printer__makerspace_id")
+    rows = (
+        qs.values(*values)
+        .annotate(
+            completed=Count("id", filter=Q(status=PrintRequest.Status.COMPLETED)),
+            failed=Count("id", filter=Q(status=PrintRequest.Status.FAILED)),
+            grams_used=Coalesce(Sum("filament_grams_used"), Decimal("0")),
+        )
+        .order_by("printer__makerspace_id", "printer__name", "printer_id")
+    )
+    data = []
+    for row in rows:
+        item = {
+            "printer_id": row["printer_id"],
+            "printer_name": row["printer__name"],
+            "completed": row["completed"],
+            "failed": row["failed"],
+            "grams_used": _decimal_to_float(row["grams_used"]),
         }
         if include_makerspace:
             item["makerspace_id"] = row["printer__makerspace_id"]

@@ -19,6 +19,15 @@ class PrintingReportPrinterHoursSerializer(serializers.Serializer):
     makerspace_id = serializers.IntegerField(required=False)
 
 
+class PrintingReportPrinterOutcomeSerializer(serializers.Serializer):
+    printer_id = serializers.IntegerField()
+    printer_name = serializers.CharField()
+    completed = serializers.IntegerField()
+    failed = serializers.IntegerField()
+    grams_used = serializers.FloatField()
+    makerspace_id = serializers.IntegerField(required=False)
+
+
 class PrintingReportFilamentUsedSerializer(serializers.Serializer):
     spool_id = serializers.IntegerField()
     material = serializers.CharField()
@@ -56,6 +65,7 @@ class PrintingReportTopRequesterSerializer(serializers.Serializer):
 class PrintingReportSerializer(serializers.Serializer):
     totals = PrintingReportTotalsSerializer()
     printer_hours = PrintingReportPrinterHoursSerializer(many=True)
+    printer_outcomes = PrintingReportPrinterOutcomeSerializer(many=True)
     filament_used = PrintingReportFilamentUsedSerializer(many=True)
     filament_by_brand = PrintingReportBrandSerializer(many=True)
     top_requesters = PrintingReportTopRequesterSerializer(many=True)

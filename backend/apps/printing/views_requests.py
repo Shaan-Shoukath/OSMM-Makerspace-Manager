@@ -29,9 +29,9 @@ class PrintRequestCreateListView(generics.ListCreateAPIView):
     def get_queryset(self):
         return (
             PrintRequest.objects.select_related(
-                "bucket__makerspace", "requester", "handled_by"
+                "bucket__makerspace", "requester", "handled_by", "reprint_of"
             )
-            .prefetch_related("files")
+            .prefetch_related("files", "reprint_of__files")
             .filter(requester=self.request.user)
             .order_by("-created_at")
         )
@@ -63,9 +63,9 @@ class PrintRequestDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return (
             PrintRequest.objects.select_related(
-                "bucket__makerspace", "requester", "handled_by"
+                "bucket__makerspace", "requester", "handled_by", "reprint_of"
             )
-            .prefetch_related("files")
+            .prefetch_related("files", "reprint_of__files")
             .filter(requester=self.request.user)
             .order_by("-created_at")
         )
@@ -78,8 +78,8 @@ class PrintRequestDetailView(generics.RetrieveAPIView):
 class ManagedPrintRequestQuerysetMixin:
     def get_queryset(self):
         qs = PrintRequest.objects.select_related(
-            "bucket__makerspace", "requester", "handled_by"
-        ).prefetch_related("files").order_by("-created_at")
+            "bucket__makerspace", "requester", "handled_by", "reprint_of"
+        ).prefetch_related("files", "reprint_of__files").order_by("-created_at")
         qs = rbac.scope_by_action(
             self.request.user,
             rbac.Action.MANAGE_PRINTING,
@@ -151,7 +151,12 @@ class ManagedPrintFileUrlView(APIView):
         print_file = get_object_or_404(qs, pk=pk)
         require_module(print_file.makerspace_id, "printing")
         try:
-            url = print_get_url(print_file.object_key)
+            url = print_get_url(
+                print_file.object_key,
+                filename=print_file.original_filename or "",
+                content_type=print_file.content_type or "",
+                as_attachment=(print_file.kind != "screenshot"),
+            )
         except StorageUnavailable:
             return Response(
                 {"detail": "Storage is unavailable."},

@@ -55,18 +55,62 @@ def test_managed_file_url_returns_signed_url_for_owner_makerspace(monkeypatch):
         kind=PrintRequestFile.Kind.STL,
         object_key="printing/manage-file-url-own/model.stl",
         content_type="model/stl",
+        original_filename="model.stl",
         size_bytes=1234,
         owner_checkin_user_id="x",
     )
-    monkeypatch.setattr(
-        "apps.printing.views_requests.print_get_url",
-        lambda object_key: "http://signed/url",
-    )
+    captured = {}
+
+    def fake(object_key, **kwargs):
+        captured["object_key"] = object_key
+        captured.update(kwargs)
+        return "http://signed/url"
+
+    monkeypatch.setattr("apps.printing.views_requests.print_get_url", fake)
 
     response = authenticated_client(manager).get(managed_file_url(print_file))
 
     assert response.status_code == 200
     assert response.data["url"] == "http://signed/url"
+    assert captured["object_key"] == print_file.object_key
+    assert captured["as_attachment"] is True
+    assert captured["filename"] == "model.stl"
+    assert captured["content_type"] == "model/stl"
+
+
+def test_managed_file_url_screenshot_is_inline(monkeypatch):
+    makerspace = make_space("manage-file-url-screenshot")
+    bucket = make_bucket(makerspace)
+    requester = make_user("manage-file-url-shot-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("manage-file-url-shot-manager", makerspace)
+    print_request = make_request(bucket, requester)
+    print_file = PrintRequestFile.objects.create(
+        print_request=print_request,
+        makerspace=makerspace,
+        kind=PrintRequestFile.Kind.SCREENSHOT,
+        object_key="printing/manage-file-url-screenshot/preview.png",
+        content_type="image/png",
+        original_filename="preview.png",
+        size_bytes=1234,
+        owner_checkin_user_id="x",
+    )
+    captured = {}
+
+    def fake(object_key, **kwargs):
+        captured["object_key"] = object_key
+        captured.update(kwargs)
+        return "http://signed/screenshot"
+
+    monkeypatch.setattr("apps.printing.views_requests.print_get_url", fake)
+
+    response = authenticated_client(manager).get(managed_file_url(print_file))
+
+    assert response.status_code == 200
+    assert response.data["url"] == "http://signed/screenshot"
+    assert captured["object_key"] == print_file.object_key
+    assert captured["as_attachment"] is False
+    assert captured["filename"] == "preview.png"
+    assert captured["content_type"] == "image/png"
 
 
 def test_managed_file_url_rejects_unattached_staging_file():

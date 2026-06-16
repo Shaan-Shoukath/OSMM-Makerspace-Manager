@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -11,7 +13,15 @@ from apps.accounts.models import User
 from apps.audit.models import AuditLog
 from apps.makerspaces.models import Makerspace, MakerspaceMembership
 from apps.printing.emails import send_print_email
-from apps.printing.models import FilamentSpool, PrintBucket, PrintPrinter, PrintRequest
+from apps.printing.models import (
+    FilamentSpool,
+    PrintBucket,
+    PrintPrinter,
+    PrintRequest,
+    PrintRequestFile,
+)
+from apps.printing.serializers import PrintRequestSerializer
+from apps.printing import workflow
 
 pytestmark = pytest.mark.django_db
 
@@ -111,6 +121,13 @@ def action_url(print_request, action):
 
 def printed_list_url():
     return reverse("printing:printed-list")
+
+
+def makerspace_report_url(makerspace):
+    return reverse(
+        "printing:makerspace-report",
+        kwargs={"makerspace_id": makerspace.id},
+    )
 
 
 def printer_list_url():
@@ -353,6 +370,401 @@ def test_print_manager_accepts_starts_and_completes_with_audit_and_emails(
     assert print_request.status == PrintRequest.Status.COMPLETED
     assert print_request.completed_at is not None
     assert AuditLog.objects.filter(action="print.completed").count() == 1
+
+
+def test_complete_decrements_spool_remaining_and_report_filament_used():
+    makerspace = make_space("spool-deduct")
+    bucket = make_bucket(makerspace)
+    requester = make_user("spool-deduct-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("spool-deduct-manager", makerspace)
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name="Prusa MK4")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PLA",
+        color="black",
+        initial_weight_grams=1000,
+        remaining_weight_grams=1000,
+    )
+    print_request = make_request(bucket, requester)
+
+    workflow.accept(print_request, manager)
+    workflow.start(
+        print_request,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=60,
+        estimated_filament_grams=Decimal("100.00"),
+    )
+    workflow.complete(print_request, manager)
+
+    spool.refresh_from_db()
+    assert spool.remaining_weight_grams == Decimal("900.00")
+    print_request.refresh_from_db()
+    assert print_request.filament_grams_used == Decimal("100.00")
+    assert AuditLog.objects.filter(action="print.spool_deducted").count() == 1
+
+    response = authenticated_client(manager).get(makerspace_report_url(makerspace))
+
+    assert response.status_code == 200
+    assert response.data["filament_used"] == [
+        {
+            "spool_id": spool.id,
+            "material": "PLA",
+            "color": "black",
+            "grams_used": 100.0,
+            "remaining_grams": 900.0,
+        }
+    ]
+
+
+def test_fail_with_percent_charges_partial_filament():
+    makerspace = make_space("spool-fail-partial")
+    bucket = make_bucket(makerspace)
+    requester = make_user("spool-fail-partial-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("spool-fail-partial-manager", makerspace)
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name="Prusa MK4")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PLA",
+        color="black",
+        initial_weight_grams=1000,
+        remaining_weight_grams=1000,
+    )
+    print_request = make_request(bucket, requester)
+
+    workflow.accept(print_request, manager)
+    workflow.start(
+        print_request,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=60,
+        estimated_filament_grams=Decimal("100.00"),
+    )
+    workflow.fail(print_request, manager, "warped", percent_complete=40)
+
+    spool.refresh_from_db()
+    assert spool.remaining_weight_grams == Decimal("960.00")
+    print_request.refresh_from_db()
+    assert print_request.filament_grams_used == Decimal("40.00")
+    assert AuditLog.objects.filter(action="print.spool_deducted").exists()
+
+
+def test_fail_with_zero_percent_does_not_charge():
+    makerspace = make_space("spool-fail-zero")
+    bucket = make_bucket(makerspace)
+    requester = make_user("spool-fail-zero-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("spool-fail-zero-manager", makerspace)
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name="Prusa MK4")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PLA",
+        color="black",
+        initial_weight_grams=1000,
+        remaining_weight_grams=1000,
+    )
+    print_request = make_request(bucket, requester)
+
+    workflow.accept(print_request, manager)
+    workflow.start(
+        print_request,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=60,
+        estimated_filament_grams=Decimal("100.00"),
+    )
+    workflow.fail(print_request, manager, "warped", percent_complete=0)
+
+    spool.refresh_from_db()
+    assert spool.remaining_weight_grams == Decimal("1000.00")
+    print_request.refresh_from_db()
+    assert print_request.filament_grams_used == Decimal("0.00")
+
+
+def test_complete_spool_decrement_clamps_at_zero():
+    makerspace = make_space("spool-deduct-clamp")
+    bucket = make_bucket(makerspace)
+    requester = make_user("spool-clamp-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("spool-clamp-manager", makerspace)
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name="Prusa MK4")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PETG",
+        initial_weight_grams=100,
+        remaining_weight_grams=10,
+    )
+    print_request = make_request(bucket, requester)
+
+    workflow.accept(print_request, manager)
+    workflow.start(
+        print_request,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=20,
+        estimated_filament_grams=Decimal("5.00"),
+    )
+    PrintRequest.objects.filter(pk=print_request.pk).update(
+        estimated_filament_grams=Decimal("100000.00")
+    )
+    workflow.complete(print_request, manager)
+
+    spool.refresh_from_db()
+    assert spool.remaining_weight_grams == Decimal("0.00")
+
+
+def test_fail_does_not_decrement_spool_remaining():
+    makerspace = make_space("spool-fail-no-deduct")
+    bucket = make_bucket(makerspace)
+    requester = make_user("spool-fail-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("spool-fail-manager", makerspace)
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name="Prusa MK4")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PLA",
+        initial_weight_grams=1000,
+        remaining_weight_grams=1000,
+    )
+    print_request = make_request(bucket, requester)
+
+    workflow.accept(print_request, manager)
+    workflow.start(
+        print_request,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=60,
+        estimated_filament_grams=Decimal("100.00"),
+    )
+    workflow.fail(print_request, manager, "Nozzle jammed.")
+
+    spool.refresh_from_db()
+    assert spool.remaining_weight_grams == Decimal("1000.00")
+    assert not AuditLog.objects.filter(action="print.spool_deducted").exists()
+
+
+def test_reprint_clones_failed_request():
+    makerspace = make_space("reprint-clone")
+    bucket = make_bucket(makerspace)
+    requester = make_user("reprint-clone-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("reprint-clone-manager", makerspace)
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name="Prusa MK4")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PLA",
+        color="black",
+        initial_weight_grams=1000,
+        remaining_weight_grams=1000,
+    )
+    failed = make_request(bucket, requester, title="Failed bracket")
+    failed.material = "PLA"
+    failed.color = "black"
+    failed.requested_filament_spool = spool
+    failed.save(
+        update_fields=[
+            "material",
+            "color",
+            "requested_filament_spool",
+            "updated_at",
+        ]
+    )
+
+    workflow.accept(failed, manager)
+    workflow.start(
+        failed,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=60,
+        estimated_filament_grams=Decimal("100.00"),
+    )
+    workflow.fail(failed, manager, "warped", percent_complete=40)
+    failed.refresh_from_db()
+    new_request = workflow.reprint(failed, manager)
+
+    assert new_request.id != failed.id
+    assert new_request.status == PrintRequest.Status.ACCEPTED
+    assert new_request.reprint_of_id == failed.id
+    assert new_request.printer_id is None
+    assert new_request.filament_spool_id is None
+    assert new_request.filament_grams_used == Decimal("0")
+    assert new_request.estimated_filament_grams == failed.estimated_filament_grams
+    assert new_request.requested_filament_spool_id == failed.requested_filament_spool_id
+    assert new_request.accepted_at is not None
+    assert new_request.started_at is None
+    assert new_request.completed_at is None
+    failed.refresh_from_db()
+    assert failed.status == PrintRequest.Status.FAILED
+    assert AuditLog.objects.filter(action="print.reprinted").exists()
+
+
+def test_reprint_rejects_non_failed():
+    makerspace = make_space("reprint-non-failed")
+    bucket = make_bucket(makerspace)
+    requester = make_user("reprint-non-failed-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("reprint-non-failed-manager", makerspace)
+    print_request = make_request(
+        bucket,
+        requester,
+        status=PrintRequest.Status.ACCEPTED,
+    )
+
+    with pytest.raises(workflow.InvalidTransition):
+        workflow.reprint(print_request, manager)
+
+
+def test_reprint_borrows_original_files():
+    makerspace = make_space("reprint-files")
+    bucket = make_bucket(makerspace)
+    requester = make_user("reprint-files-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("reprint-files-manager", makerspace)
+    print_request = make_request(bucket, requester)
+    print_file = PrintRequestFile.objects.create(
+        print_request=print_request,
+        makerspace=makerspace,
+        kind=PrintRequestFile.Kind.STL,
+        object_key="printing/reprint-files/m.stl",
+        content_type="model/stl",
+        original_filename="m.stl",
+        size_bytes=1234,
+        owner_checkin_user_id="x",
+    )
+    PrintRequest.objects.filter(pk=print_request.pk).update(
+        status=PrintRequest.Status.FAILED,
+    )
+    print_request.refresh_from_db()
+
+    new_request = workflow.reprint(print_request, manager)
+    files = PrintRequestSerializer(new_request).data["files"]
+
+    assert len(files) == 1
+    assert files[0]["id"] == print_file.id
+
+
+def test_reprint_of_a_reprint_still_resolves_original_files():
+    # A reprint can itself fail and be reprinted again. Every reprint must anchor to
+    # the file-owning original root so the model files stay reachable across retries.
+    makerspace = make_space("reprint-chain")
+    bucket = make_bucket(makerspace)
+    requester = make_user("reprint-chain-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("reprint-chain-manager", makerspace)
+    original = make_request(bucket, requester)
+    original_file = PrintRequestFile.objects.create(
+        print_request=original,
+        makerspace=makerspace,
+        kind=PrintRequestFile.Kind.STL,
+        object_key="printing/reprint-chain/m.stl",
+        content_type="model/stl",
+        original_filename="m.stl",
+        size_bytes=1234,
+        owner_checkin_user_id="x",
+    )
+    PrintRequest.objects.filter(pk=original.pk).update(status=PrintRequest.Status.FAILED)
+    original.refresh_from_db()
+
+    first_reprint = workflow.reprint(original, manager)
+    PrintRequest.objects.filter(pk=first_reprint.pk).update(status=PrintRequest.Status.FAILED)
+    first_reprint.refresh_from_db()
+
+    second_reprint = workflow.reprint(first_reprint, manager)
+
+    # Both reprints anchor to the original root, not the immediate failed parent.
+    assert first_reprint.reprint_of_id == original.id
+    assert second_reprint.reprint_of_id == original.id
+    files = PrintRequestSerializer(second_reprint).data["files"]
+    assert len(files) == 1
+    assert files[0]["id"] == original_file.id
+
+
+def test_reprint_endpoint_returns_201_and_409():
+    makerspace = make_space("reprint-endpoint")
+    bucket = make_bucket(makerspace)
+    requester = make_user("reprint-endpoint-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("reprint-endpoint-manager", makerspace)
+    failed = make_request(bucket, requester, status=PrintRequest.Status.FAILED)
+    accepted = make_request(
+        bucket,
+        requester,
+        title="Accepted",
+        status=PrintRequest.Status.ACCEPTED,
+    )
+    client = authenticated_client(manager)
+
+    response = client.post(
+        reverse("printing:managed-request-reprint", kwargs={"pk": failed.id}),
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["reprint_of"] == failed.id
+
+    response = client.post(
+        reverse("printing:managed-request-reprint", kwargs={"pk": accepted.id}),
+        format="json",
+    )
+
+    assert response.status_code == 409
+
+
+def test_printer_outcomes_in_report():
+    makerspace = make_space("printer-outcomes")
+    bucket = make_bucket(makerspace)
+    requester = make_user("printer-outcomes-requester", access_status=User.AccessStatus.ACTIVE)
+    manager = make_print_manager("printer-outcomes-manager", makerspace)
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name="Prusa MK4")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PLA",
+        color="black",
+        initial_weight_grams=1000,
+        remaining_weight_grams=1000,
+    )
+    completed = make_request(bucket, requester, title="Completed")
+    failed = make_request(bucket, requester, title="Failed")
+
+    workflow.accept(completed, manager)
+    workflow.start(
+        completed,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=60,
+        estimated_filament_grams=Decimal("100.00"),
+    )
+    workflow.complete(completed, manager)
+
+    workflow.accept(failed, manager)
+    workflow.start(
+        failed,
+        manager,
+        printer_id=printer.id,
+        filament_spool_id=spool.id,
+        estimated_minutes=30,
+        estimated_filament_grams=Decimal("100.00"),
+    )
+    workflow.fail(failed, manager, "warped", percent_complete=40)
+
+    response = authenticated_client(manager).get(makerspace_report_url(makerspace))
+
+    assert response.status_code == 200
+    assert response.data["printer_outcomes"] == [
+        {
+            "printer_id": printer.id,
+            "printer_name": "Prusa MK4",
+            "completed": 1,
+            "failed": 1,
+            "grams_used": 140.0,
+        }
+    ]
 
 
 def test_print_manager_creates_printer_and_spool_in_action_scope():

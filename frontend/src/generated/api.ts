@@ -146,6 +146,7 @@ export const openApiPaths = [
   "/api/v1/printing/manage/requests/{id}/complete",
   "/api/v1/printing/manage/requests/{id}/fail",
   "/api/v1/printing/manage/requests/{id}/reject",
+  "/api/v1/printing/manage/requests/{id}/reprint",
   "/api/v1/printing/manage/requests/{id}/start",
   "/api/v1/printing/manage/spools/",
   "/api/v1/printing/manage/spools/{id}/",

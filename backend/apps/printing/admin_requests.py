@@ -45,17 +45,24 @@ class PrintRequestAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
         if not obj or not obj.pk:
             return "(save first)"
 
+        # Reprint clones own no PrintRequestFile rows; fall back to the original
+        # request's files (mirrors PrintRequestSerializer.get_files) so superusers can
+        # still download the model/preview when viewing a reprint.
+        files = list(obj.files.all())
+        if not files and obj.reprint_of_id:
+            files = list(obj.reprint_of.files.all())
+
         rows = []
-        for f in obj.files.all():
-            try:
-                url = print_get_url(f.object_key)
-            except Exception:
-                url = ""
+        for f in files:
             label = f"{f.kind} #{f.id} ({f.size_bytes} bytes)"
-            if not url:
-                rows.append(format_html("<div>{} — unavailable</div>", label))
-                continue
             if (f.content_type or "").startswith("image/"):
+                try:
+                    url = print_get_url(f.object_key, content_type=f.content_type)
+                except Exception:
+                    url = ""
+                if not url:
+                    rows.append(format_html("<div>{} unavailable</div>", label))
+                    continue
                 rows.append(
                     format_html(
                         '<div><a href="{}" target="_blank" rel="noopener">'
@@ -66,6 +73,18 @@ class PrintRequestAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
                     )
                 )
             else:
+                try:
+                    url = print_get_url(
+                        f.object_key,
+                        filename=f.original_filename,
+                        content_type=f.content_type,
+                        as_attachment=True,
+                    )
+                except Exception:
+                    url = ""
+                if not url:
+                    rows.append(format_html("<div>{} unavailable</div>", label))
+                    continue
                 rows.append(
                     format_html(
                         '<div><a href="{}" target="_blank" rel="noopener">Download {}</a></div>',
