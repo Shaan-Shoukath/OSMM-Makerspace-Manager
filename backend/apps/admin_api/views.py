@@ -11,6 +11,7 @@ from apps.admin_api.views_inventory import (
     _assert_box_in_makerspace,
     _assert_category_in_makerspace,
 )
+from apps.admin_api.views_lending_history import InventoryLendingHistoryView
 from apps.admin_api.views_needs_fix import (
     NeedsFixActionView,
     NeedsFixShelfListView,
@@ -41,6 +42,7 @@ __all__ = [
     "CategoryDetailView",
     "CategoryListCreateView",
     "InventoryDetailView",
+    "InventoryLendingHistoryView",
     "InventoryListCreateView",
     "InventoryQuantityAdjustmentView",
     "NeedsFixShelfListView",

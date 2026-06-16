@@ -44,6 +44,11 @@ urlpatterns = [
         name="admin-needs-fix-action",
     ),
     path(
+        "inventory/<int:pk>/lending-history",
+        views.InventoryLendingHistoryView.as_view(),
+        name="admin-inventory-lending-history",
+    ),
+    path(
         "inventory/<int:pk>/adjust-quantity",
         views.InventoryQuantityAdjustmentView.as_view(),
         name="admin-inventory-adjust-quantity",

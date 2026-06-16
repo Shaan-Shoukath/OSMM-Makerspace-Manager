@@ -19,6 +19,8 @@ type ItemForm = {
   storage_location: string; is_public: boolean; public_self_checkout_enabled: boolean; show_public_count: boolean; public_availability_mode: string;
 };
 type AdjustmentForm = { delta_available: string; delta_damaged: string; delta_lost: string; reason: string };
+type LendingHistoryEntry = { username: string; issued_at: string; quantity: number };
+type LendingHistoryResponse = { product_id: number; last_borrower: LendingHistoryEntry | null; recent: LendingHistoryEntry[] };
 
 const emptyForm: ItemForm = {
   name: "", tracking_mode: "quantity", category: "", description: "", total_quantity: "1", available_quantity: "1",
@@ -26,7 +28,7 @@ const emptyForm: ItemForm = {
 };
 const emptyAdjust: AdjustmentForm = { delta_available: "0", delta_damaged: "0", delta_lost: "0", reason: "" };
 
-export function Inventory({ makerspace }: { makerspace: Makerspace }) {
+export function Inventory({ makerspace, canViewAudit = false }: { makerspace: Makerspace; canViewAudit?: boolean }) {
   const queryClient = useQueryClient();
   const storageKey = `inventory.view.${makerspace.id}`;
   const [search, setSearch] = useState(() => localStorage.getItem(storageKey) ?? "");
@@ -108,6 +110,7 @@ export function Inventory({ makerspace }: { makerspace: Makerspace }) {
       <ItemModal title="Add item" open={addOpen} onClose={() => setAddOpen(false)} form={form} setForm={setForm} categories={categoryRows} includeQuantities pending={create.isPending} error={create.error?.message} onSubmit={() => create.mutate()} />
       <ItemModal title={editing?.name ?? "Edit item"} open={Boolean(editing)} onClose={() => setEditing(null)} form={form} setForm={setForm} categories={categoryRows} pending={update.isPending} error={update.error?.message} onSubmit={() => update.mutate()}>
         {editing ? <QuantityAdjust product={editing} form={adjustForm} setForm={setAdjustForm} pending={adjust.isPending} error={adjust.error?.message} onSubmit={() => adjust.mutate()} /> : null}
+        {editing && canViewAudit ? <LendingHistory productId={editing.id} /> : null}
       </ItemModal>
       <ConfirmDialog open={Boolean(archiveTarget)} title="Archive item" message={archiveTarget ? `Archive ${archiveTarget.name}? It will be hidden from active inventory views.` : ""} confirmLabel="Archive" tone="danger" pending={archive.isPending} onCancel={() => setArchiveTarget(null)} onConfirm={() => { if (archiveTarget) archive.mutate(archiveTarget); }} />
       <ConfirmDialog open={qrConfirm !== null} title={qrConfirm ? "Enable public QR" : "Disable public QR"} message={`${qrConfirm ? "Enable" : "Disable"} public self-checkout QR for ${selectedIds.length} selected items?`} confirmLabel={qrConfirm ? "Enable" : "Disable"} pending={bulkQr.isPending} onCancel={() => setQrConfirm(null)} onConfirm={() => { if (qrConfirm !== null) bulkQr.mutate(qrConfirm); }} />
@@ -151,6 +154,30 @@ function QuantityAdjust({ product, form, setForm, pending, error, onSubmit }: { 
   );
 }
 
+function LendingHistory({ productId }: { productId: number }) {
+  const history = useStaffGet<LendingHistoryResponse>(["lending-history", productId], `/admin/inventory/${productId}/lending-history`);
+  const last = history.data?.last_borrower;
+  const recent = history.data?.recent ?? [];
+  return (
+    <div className="grid gap-2 border-t border-line pt-3">
+      <h3 className="text-sm font-semibold text-ink">Lending history</h3>
+      {history.isLoading ? <p className="text-sm text-muted">Loading lending history...</p> : null}
+      {history.error ? <p className="text-sm text-danger">{history.error.message}</p> : null}
+      {!history.isLoading && !history.error && !recent.length ? <p className="text-sm text-muted">No lending history yet.</p> : null}
+      {last ? <p className="text-sm text-ink">Last borrower: {last.username} ({formatDate(last.issued_at)})</p> : null}
+      {recent.length ? (
+        <ul className="grid gap-1 text-sm text-muted">
+          {recent.map((entry) => (
+            <li key={`${entry.username}-${entry.issued_at}`}>
+              {entry.username} — {entry.quantity} on {formatDate(entry.issued_at)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function payloadFromForm(form: ItemForm, includeQuantities: boolean) {
   return {
     name: form.name.trim(), tracking_mode: form.tracking_mode, category: form.category ? Number(form.category) : null, description: form.description,
@@ -175,4 +202,9 @@ function InventoryAvailability({ product }: { product: AdminProduct }) {
 
 function InventoryMetric({ label, value }: { label: string; value: number }) {
   return <div className="rounded-md border border-line bg-surface p-3"><p className="text-xs font-semibold uppercase text-muted">{label}</p><p className="mt-1 text-xl font-bold text-ink">{value}</p></div>;
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }

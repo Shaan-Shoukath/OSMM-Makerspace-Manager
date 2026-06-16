@@ -1292,6 +1292,42 @@
                 }
             }
         },
+        "/api/v1/admin/inventory/{id}/lending-history": {
+            "get": {
+                "operationId": "api_v1_admin_inventory_lending_history_retrieve",
+                "summary": "Per-item lending history (last borrower + last 3 lends)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Admin inventory"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/LendingHistoryResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/admin/inventory/{id}/needs-fix": {
             "post": {
                 "operationId": "api_v1_admin_inventory_needs_fix_create",
@@ -11159,6 +11195,53 @@
                     "since",
                     "source",
                     "status"
+                ]
+            },
+            "LendingHistoryEntry": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string"
+                    },
+                    "issued_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "quantity": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "issued_at",
+                    "quantity",
+                    "username"
+                ]
+            },
+            "LendingHistoryResponse": {
+                "type": "object",
+                "properties": {
+                    "product_id": {
+                        "type": "integer"
+                    },
+                    "last_borrower": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LendingHistoryEntry"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "recent": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/LendingHistoryEntry"
+                        }
+                    }
+                },
+                "required": [
+                    "last_borrower",
+                    "product_id",
+                    "recent"
                 ]
             },
             "LoginRequest": {

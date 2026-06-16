@@ -207,6 +207,7 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
   const canUseToBuy = isSuperadmin || ["space_manager", "inventory_manager", "print_manager"].includes(activeRole ?? "");
   // EDIT_INVENTORY roles only (guest admins can't repair/scrap stock).
   const canEditInventory = isSuperadmin || ["space_manager", "inventory_manager"].includes(activeRole ?? "");
+  const canViewAudit = isSuperadmin || ["space_manager", "inventory_manager"].includes(activeRole ?? "");
   // MANAGE_MAKERSPACE holders (Space Manager + superadmin) manage the tenant-frontend registry.
   // Declared before allowedTabs because the filter callback below reads it immediately.
   const canManageMakerspace = isSuperadmin || activeRole === "space_manager";
@@ -309,7 +310,7 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
             />
           ) : null}
           {activeMakerspace && activeTab === "inventory" ? (
-            <Inventory makerspace={activeMakerspace} />
+            <Inventory makerspace={activeMakerspace} canViewAudit={canViewAudit} />
           ) : null}
           {activeMakerspace && activeTab === "needsfix" ? (
             <NeedsFixShelf makerspace={activeMakerspace} />
