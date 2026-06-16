@@ -2,6 +2,7 @@ from urllib.parse import urlsplit
 
 from rest_framework import serializers
 
+from apps.accounts.models import User
 from apps.apiclients.models import ApiClient, ApiKeyRequest
 from apps.makerspaces.models import Makerspace
 
@@ -55,6 +56,19 @@ class ApiClientSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # Privilege gate: this endpoint is now reachable by makerspace admins (MANAGE_MAKERSPACE),
+        # not just superadmins. Non-superadmins may NOT set the privileged knobs (rate-limit tier,
+        # scopes, client_type) — otherwise a Space Manager could self-issue a `trusted`-tier client
+        # with `admin:write` scopes. Drop them: on create the view's safe defaults
+        # (server / [] / standard) apply; on update the existing superadmin-set values are preserved.
+        request = self.context.get("request")
+        actor = getattr(request, "user", None)
+        is_superadmin = bool(
+            actor and (actor.is_superuser or getattr(actor, "role", None) == User.Role.SUPERADMIN)
+        )
+        if not is_superadmin:
+            for field in ("client_type", "scopes", "rate_limit_tier"):
+                attrs.pop(field, None)
         client_type = attrs.get("client_type") or getattr(self.instance, "client_type", "server")
         scopes = attrs.get("scopes", getattr(self.instance, "scopes", []))
         if client_type == "browser":

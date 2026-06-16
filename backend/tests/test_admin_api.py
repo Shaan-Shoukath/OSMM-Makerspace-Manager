@@ -387,6 +387,61 @@ def test_api_client_rest_allows_makerspace_admin_and_scopes_others():
     assert makerspace.cors_allowed_origins == ["https://lab.example.com"]
 
 
+def test_api_client_makerspace_admin_cannot_escalate_privileged_fields():
+    # Review fix (P2): widening API-client management to MANAGE_MAKERSPACE must NOT let a
+    # makerspace admin set the privileged knobs. Tier/scopes/client_type are forced to safe
+    # defaults on create and preserved (not escalated) on update — superadmin-only.
+    makerspace = make_space("client-escalate")
+    admin = make_member("client-escalate-admin", makerspace)  # SPACE_MANAGER
+    admin_client = authenticated_client(admin)
+
+    created = admin_client.post(
+        f"/api/v1/admin/makerspace/{makerspace.id}/api-clients",
+        {
+            "label": "Sneaky",
+            "allowed_origins": ["https://lab.example.com"],
+            "rate_limit_tier": "trusted",
+            "scopes": ["admin:write", "inventory:write"],
+            "client_type": "server",
+        },
+        format="json",
+    )
+    assert created.status_code == 201
+    assert created.data["rate_limit_tier"] == "standard"  # ignored, not "trusted"
+    assert created.data["scopes"] == []  # ignored, not the admin-supplied scopes
+
+    obj = ApiClient.objects.get(id=created.data["id"])
+    assert obj.rate_limit_tier == "standard"
+    assert obj.scopes == []
+
+    # A PATCH attempting escalation is also ignored.
+    patched = admin_client.patch(
+        f"/api/v1/admin/api-clients/{created.data['id']}",
+        {"rate_limit_tier": "trusted", "scopes": ["admin:write"]},
+        format="json",
+    )
+    assert patched.status_code == 200
+    obj.refresh_from_db()
+    assert obj.rate_limit_tier == "standard"
+    assert obj.scopes == []
+
+    # A superadmin may still set the privileged knobs.
+    superadmin = make_user(
+        "client-escalate-super",
+        role=User.Role.SUPERADMIN,
+        access_status=User.AccessStatus.ACTIVE,
+        is_superuser=True,
+    )
+    elevated = authenticated_client(superadmin).patch(
+        f"/api/v1/admin/api-clients/{created.data['id']}",
+        {"rate_limit_tier": "trusted"},
+        format="json",
+    )
+    assert elevated.status_code == 200
+    obj.refresh_from_db()
+    assert obj.rate_limit_tier == "trusted"
+
+
 def test_member_can_request_api_key_without_secret_exposure():
     makerspace = make_space("client-request-space")
     requester = make_member("client-requester", makerspace)

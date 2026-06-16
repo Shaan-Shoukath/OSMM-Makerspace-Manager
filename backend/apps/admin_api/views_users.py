@@ -160,9 +160,21 @@ class ResetUserPasswordView(APIView):
         responses={200: ResetPasswordResponseSerializer},
     )
     def post(self, request, pk, *args, **kwargs):
-        target = get_object_or_404(User, pk=pk)
         actor = request.user
         is_superadmin = actor.is_superuser or actor.role == User.Role.SUPERADMIN
+        # 404-before-403: a non-superadmin may only act on users inside their
+        # MANAGE_MAKERSPACE scope, so a nonexistent OR out-of-scope pk both return 404 —
+        # no probing user existence by id via a 403-vs-404 difference.
+        if is_superadmin:
+            target = get_object_or_404(User, pk=pk)
+        else:
+            scope = rbac.makerspaces_for_action(actor, rbac.Action.MANAGE_MAKERSPACE)
+            base = User.objects.all()
+            if scope is not rbac.ALL:
+                base = base.filter(
+                    makerspace_memberships__makerspace_id__in=scope
+                ).distinct()
+            target = get_object_or_404(base, pk=pk)
         # Never reset a superadmin via this endpoint.
         if target.is_superuser or target.role == User.Role.SUPERADMIN:
             raise PermissionDenied("Cannot reset a superadmin's password here.")
@@ -215,6 +227,11 @@ class ResetUserPasswordView(APIView):
         target.set_password(password)
         target.must_change_password = True
         target.save(update_fields=["password", "must_change_password"])
+        # Revoke outstanding refresh tokens so a session that authenticated with the
+        # OLD password can't persist after an admin-forced reset.
+        from apps.accounts.views import _blacklist_outstanding_tokens
+
+        _blacklist_outstanding_tokens(target)
         audit.record(
             actor,
             "user.password_reset",

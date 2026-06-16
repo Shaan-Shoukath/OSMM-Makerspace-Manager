@@ -129,6 +129,42 @@ def test_superadmin_aggregates_hide_disabled_space():
     }
 
 
+def test_superadmin_cannot_reach_disabled_space_per_makerspace_reports():
+    hidden_space = make_space("access-hidden-direct")
+    hidden_space.superadmin_access_enabled = False
+    hidden_space.save(update_fields=["superadmin_access_enabled"])
+    superadmin = make_superadmin("access-direct-super")
+    client = authenticated_client(superadmin)
+
+    # The aggregate paths already drop hidden spaces; the per-makerspace endpoints must
+    # also refuse a direct-by-id query from a superadmin (soft-hide → 404, not data).
+    assert client.get(
+        reverse("ledger", kwargs={"makerspace_id": hidden_space.id})
+    ).status_code == 404
+    assert client.get(
+        reverse("analytics-summary", kwargs={"makerspace_id": hidden_space.id})
+    ).status_code == 404
+    assert client.get(
+        reverse(
+            "report-export",
+            kwargs={"makerspace_id": hidden_space.id, "report_key": "summary"},
+        )
+    ).status_code == 404
+
+
+def test_disabled_space_own_manager_still_sees_its_reports():
+    hidden_space = make_space("access-hidden-own")
+    hidden_space.superadmin_access_enabled = False
+    hidden_space.save(update_fields=["superadmin_access_enabled"])
+    space_manager = make_member("access-hidden-own-manager", hidden_space)
+
+    # Soft-hide is superadmin-only: the space's own Space Manager keeps full report access.
+    response = authenticated_client(space_manager).get(
+        reverse("analytics-summary", kwargs={"makerspace_id": hidden_space.id})
+    )
+    assert response.status_code == 200
+
+
 def test_audit_list_hides_disabled_space_even_with_explicit_filter():
     hidden_space = make_space("access-hidden-audit")
     hidden_space.superadmin_access_enabled = False

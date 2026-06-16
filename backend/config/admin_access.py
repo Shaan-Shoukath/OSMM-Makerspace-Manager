@@ -22,7 +22,6 @@ GLOBAL_ADMIN_MODELS = {
     "axes.accessfailurelog",
     "axes.accesslog",
     "integrations.platformemailsettings",
-    "makerspaces.makerspacemembership",
     "token_blacklist.blacklistedtoken",
     "token_blacklist.outstandingtoken",
 }

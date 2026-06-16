@@ -148,6 +148,10 @@ def report_rows(makerspace_id, report_key):
 
 def _makerspace_for_inventory_view(user, makerspace_id):
     queryset = rbac.scope_by_action(user, rbac.Action.VIEW_INVENTORY, Makerspace.objects.all(), field="id")
+    # Soft-hide: a superadmin must not reach a makerspace that turned off superadmin
+    # access by querying it directly by id (the aggregate paths already exclude it).
+    # No-op for non-superadmins, so a hidden space's own staff keep their reports.
+    queryset = rbac.hide_from_superadmin(user, queryset, field="id")
     return get_object_or_404(queryset, pk=makerspace_id)
 
 

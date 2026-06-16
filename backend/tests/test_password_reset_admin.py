@@ -50,7 +50,9 @@ def test_cannot_reset_superadmin_target():
 
     response = authenticated_client(actor).post(reset_password_url(target), {}, format="json")
 
-    assert response.status_code == 403
+    # 404-before-403: a superadmin target is outside a makerspace admin's scope, so it
+    # is "not found" rather than "forbidden" — no probing for user existence by id.
+    assert response.status_code == 404
 
 
 def test_superadmin_cannot_reset_hidden_space_space_manager():
@@ -76,6 +78,7 @@ def test_non_superadmin_cannot_reset_peer_space_manager():
 
     response = authenticated_client(actor).post(reset_password_url(target), {}, format="json")
 
+    # Peer Space Manager in the SAME space: target is in scope (found), then blocked 403.
     assert response.status_code == 403
 
 
@@ -92,4 +95,34 @@ def test_non_superadmin_cannot_reset_user_outside_scope():
 
     response = authenticated_client(actor).post(reset_password_url(target), {}, format="json")
 
-    assert response.status_code == 403
+    # Target lives only in space B, outside the actor's authority → 404, not a 403 that
+    # would confirm the user id exists.
+    assert response.status_code == 404
+
+
+def test_admin_reset_blacklists_outstanding_tokens():
+    from rest_framework_simplejwt.token_blacklist.models import (
+        BlacklistedToken,
+        OutstandingToken,
+    )
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    space = make_space("admin-reset-revoke")
+    admin = make_member("admin-reset-revoke-actor", space)
+    target = make_member(
+        "admin-reset-revoke-target",
+        space,
+        membership_role=MakerspaceMembership.Role.INVENTORY_MANAGER,
+        role=User.Role.REQUESTER,
+    )
+    # A live session for the target: its refresh token is recorded as outstanding.
+    RefreshToken.for_user(target)
+    outstanding = OutstandingToken.objects.filter(user=target)
+    assert outstanding.exists()
+    assert not BlacklistedToken.objects.filter(token__in=outstanding).exists()
+
+    response = authenticated_client(admin).post(reset_password_url(target), {}, format="json")
+
+    assert response.status_code == 200
+    # Every pre-reset refresh token is now blacklisted, so the old session can't refresh.
+    assert BlacklistedToken.objects.filter(token__in=outstanding).count() == outstanding.count()
