@@ -11,7 +11,7 @@ from apps.admin_api.api_client_serializers import (
     ApiKeyRequestSerializer,
     ApiIntegrationSettingsSerializer,
 )
-from apps.admin_api.permissions import IsActiveStaff, IsActiveSuperAdmin, require_action
+from apps.admin_api.permissions import IsActiveStaff, require_action
 from apps.apiclients.models import ApiClient, ApiKeyRequest
 from apps.apiclients.services import sync_makerspace_origins
 from apps.audit import services as audit
@@ -21,10 +21,15 @@ from apps.makerspaces.models import Makerspace, MakerspaceMembership
 @extend_schema(tags=["API clients"], summary="List or create makerspace API clients")
 class ApiClientListCreateView(generics.ListCreateAPIView):
     serializer_class = ApiClientSerializer
-    permission_classes = [IsActiveSuperAdmin]
+    permission_classes = [IsActiveStaff]
 
     def get_queryset(self):
         makerspace_id = self.kwargs["makerspace_id"]
+        require_action(
+            self.request.user,
+            rbac.Action.MANAGE_MAKERSPACE,
+            makerspace_id,
+        )
         return (
             ApiClient.objects.select_related("makerspace")
             .filter(makerspace_id=makerspace_id)
@@ -33,6 +38,7 @@ class ApiClientListCreateView(generics.ListCreateAPIView):
 
     def create(self, request, *args, **kwargs):
         makerspace_id = self.kwargs["makerspace_id"]
+        require_action(request.user, rbac.Action.MANAGE_MAKERSPACE, makerspace_id)
         makerspace = get_object_or_404(Makerspace, pk=makerspace_id)
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -63,11 +69,15 @@ class ApiClientListCreateView(generics.ListCreateAPIView):
 @extend_schema(tags=["API clients"], summary="Retrieve, update, or delete API client")
 class ApiClientDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = ApiClientSerializer
-    permission_classes = [IsActiveSuperAdmin]
+    permission_classes = [IsActiveStaff]
     http_method_names = ["get", "patch", "delete", "head", "options"]
 
     def get_queryset(self):
-        return ApiClient.objects.select_related("makerspace")
+        return rbac.scope_by_action(
+            self.request.user,
+            rbac.Action.MANAGE_MAKERSPACE,
+            ApiClient.objects.select_related("makerspace"),
+        )
 
     def perform_update(self, serializer):
         instance = serializer.save()

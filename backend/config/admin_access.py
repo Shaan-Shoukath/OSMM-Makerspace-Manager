@@ -2,8 +2,30 @@ from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.contrib.auth import logout
+from django.db import models
 from django.http import HttpResponseForbidden
 from django.urls import reverse
+
+
+# Models whose makerspace is reached via a nested relation (no direct `makerspace` FK).
+# Keyed by "app_label.model_name" (lowercase) -> ORM lookup ending in _id.
+NESTED_MAKERSPACE_LOOKUPS = {
+    "hardware_requests.hardwarerequestitemasset": "asset__makerspace_id",
+    "printing.printrequest": "bucket__makerspace_id",
+}
+
+# Registered admin models that are intentionally NOT makerspace-scoped (account/global).
+GLOBAL_ADMIN_MODELS = {
+    "accounts.user",
+    "auth.group",
+    "axes.accessattempt",
+    "axes.accessfailurelog",
+    "axes.accesslog",
+    "integrations.platformemailsettings",
+    "makerspaces.makerspacemembership",
+    "token_blacklist.blacklistedtoken",
+    "token_blacklist.outstandingtoken",
+}
 
 
 class AdminSuperuserOnlyMiddleware:
@@ -82,6 +104,38 @@ class AdminCspEvalMiddleware:
 
 
 class SuperuserOnlyModelAdmin:
+    def resolve_hidden_lookup(self):
+        from apps.makerspaces.models import Makerspace
+
+        model = self.model
+        model_key = f"{model._meta.app_label}.{model._meta.model_name}"
+        if model_key in GLOBAL_ADMIN_MODELS:
+            return None
+        if model is Makerspace:
+            return "id"
+
+        for field in model._meta.get_fields():
+            if (
+                field.name == "makerspace"
+                and isinstance(field, (models.ForeignKey, models.OneToOneField))
+            ):
+                return "makerspace_id"
+
+        return NESTED_MAKERSPACE_LOOKUPS.get(model_key)
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        lookup = self.resolve_hidden_lookup()
+        if not lookup:
+            return queryset
+
+        from apps.accounts import rbac
+
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        if hidden:
+            queryset = queryset.exclude(**{f"{lookup}__in": hidden})
+        return queryset
+
     def _has_superuser_access(self, request):
         from apps.accounts.models import User
 

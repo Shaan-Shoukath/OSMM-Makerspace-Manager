@@ -1,9 +1,15 @@
 from django.urls import path
 
 from apps.admin_api import api_client_views, views
+from apps.admin_api.views_platform import PlatformEmailSettingsView
 from apps.makerspaces.models import MakerspaceMembership
 
 urlpatterns = [
+    path(
+        "platform/email-settings",
+        PlatformEmailSettingsView.as_view(),
+        name="admin-platform-email-settings",
+    ),
     path("makerspaces", views.MakerspaceListCreateView.as_view(), name="admin-makerspaces"),
     path("makerspaces/<int:pk>", views.MakerspaceDetailView.as_view(), name="admin-makerspace"),
     path(
@@ -107,6 +113,11 @@ urlpatterns = [
         name="admin-users-print-managers",
     ),
     path("users/<int:pk>/restrict", views.RestrictUserView.as_view(), name="user-restrict"),
+    path(
+        "users/<int:pk>/reset-password",
+        views.ResetUserPasswordView.as_view(),
+        name="admin-user-reset-password",
+    ),
     path(
         "users/<int:pk>/restore-access",
         views.RestoreUserAccessView.as_view(),

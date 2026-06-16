@@ -1,0 +1,188 @@
+from decimal import Decimal
+
+import pytest
+from django.urls import reverse
+from django.utils import timezone
+
+from apps.accounts.models import User
+from apps.audit import services as audit
+from apps.makerspaces.models import MakerspaceMembership
+from apps.printing.models import FilamentSpool, PrintBucket, PrintPrinter, PrintRequest
+from tests.return_helpers import (
+    authenticated_client,
+    make_issued_request,
+    make_member,
+    make_product,
+    make_space,
+    make_user,
+)
+
+pytestmark = pytest.mark.django_db
+
+
+def make_superadmin(username):
+    return make_user(
+        username,
+        role=User.Role.SUPERADMIN,
+        access_status=User.AccessStatus.ACTIVE,
+    )
+
+
+def makerspace_detail_url(makerspace):
+    return reverse("admin-makerspace", kwargs={"pk": makerspace.id})
+
+
+def make_completed_print(makerspace, requester, title):
+    bucket = PrintBucket.objects.create(makerspace=makerspace, name=f"{title} bucket")
+    printer = PrintPrinter.objects.create(makerspace=makerspace, name=f"{title} printer")
+    spool = FilamentSpool.objects.create(
+        makerspace=makerspace,
+        printer=printer,
+        material="PLA",
+        color="black",
+        initial_weight_grams=Decimal("1000.00"),
+        remaining_weight_grams=Decimal("900.00"),
+    )
+    return PrintRequest.objects.create(
+        bucket=bucket,
+        requester=requester,
+        title=title,
+        quantity=1,
+        status=PrintRequest.Status.COMPLETED,
+        printer=printer,
+        filament_spool=spool,
+        estimated_minutes=60,
+        estimated_filament_grams=Decimal("50.00"),
+        filament_grams_used=Decimal("50.00"),
+        completed_at=timezone.now(),
+    )
+
+
+def test_superadmin_cannot_re_enable_but_makerspace_admin_can():
+    space = make_space("access-toggle")
+    space_manager = make_member("access-toggle-manager", space)
+    superadmin = make_superadmin("access-toggle-super")
+
+    disabled = authenticated_client(superadmin).patch(
+        makerspace_detail_url(space),
+        {"superadmin_access_enabled": False},
+        format="json",
+    )
+    assert disabled.status_code == 200
+    space.refresh_from_db()
+    assert space.superadmin_access_enabled is False
+
+    regrant = authenticated_client(superadmin).patch(
+        makerspace_detail_url(space),
+        {"superadmin_access_enabled": True},
+        format="json",
+    )
+    assert regrant.status_code == 400
+    space.refresh_from_db()
+    assert space.superadmin_access_enabled is False
+
+    restored = authenticated_client(space_manager).patch(
+        makerspace_detail_url(space),
+        {"superadmin_access_enabled": True},
+        format="json",
+    )
+    assert restored.status_code == 200
+    space.refresh_from_db()
+    assert space.superadmin_access_enabled is True
+
+
+def test_superadmin_aggregates_hide_disabled_space():
+    hidden_space = make_space("access-hidden-aggregate")
+    hidden_space.superadmin_access_enabled = False
+    hidden_space.save(update_fields=["superadmin_access_enabled"])
+    visible_space = make_space("access-visible-aggregate")
+    hidden_actor = make_member("access-hidden-issuer", hidden_space)
+    visible_actor = make_member("access-visible-issuer", visible_space)
+    superadmin = make_superadmin("access-aggregate-super")
+
+    hidden_product = make_product(hidden_space, name="Hidden Scope")
+    visible_product = make_product(visible_space, name="Visible Scope")
+    make_issued_request(hidden_space, hidden_actor, [(hidden_product, 1)])
+    make_issued_request(visible_space, visible_actor, [(visible_product, 1)])
+    make_completed_print(hidden_space, hidden_actor, "Hidden print")
+    make_completed_print(visible_space, visible_actor, "Visible print")
+
+    client = authenticated_client(superadmin)
+    summary = client.get(reverse("analytics-aggregate", kwargs={"report_key": "summary"}))
+    ledger = client.get(reverse("ledger-aggregate"))
+    printing = client.get("/api/v1/printing/admin/printing/reports")
+
+    assert summary.status_code == 200
+    assert summary.data["products"] == 1
+    assert summary.data["active_loans"] == 1
+    assert summary.data["issued_quantity"] == 1
+    assert ledger.status_code == 200
+    assert ledger.data["count"] == 1
+    assert {row["makerspace_id"] for row in ledger.data["results"]} == {visible_space.id}
+    assert printing.status_code == 200
+    assert printing.data["totals"]["total_requests"] == 1
+    assert {row["makerspace_id"] for row in printing.data["printer_hours"]} == {
+        visible_space.id
+    }
+    assert hidden_space.id not in {
+        row["makerspace_id"] for row in printing.data["top_requesters"]
+    }
+
+
+def test_audit_list_hides_disabled_space_even_with_explicit_filter():
+    hidden_space = make_space("access-hidden-audit")
+    hidden_space.superadmin_access_enabled = False
+    hidden_space.save(update_fields=["superadmin_access_enabled"])
+    actor = make_member("access-hidden-audit-actor", hidden_space)
+    superadmin = make_superadmin("access-audit-super")
+    audit.record(
+        actor,
+        "makerspace.hidden_test",
+        makerspace=hidden_space,
+        target=hidden_space,
+    )
+
+    response = authenticated_client(superadmin).get(
+        f"{reverse('admin-audit-logs')}?makerspace={hidden_space.id}"
+    )
+
+    assert response.status_code == 200
+    assert response.data["results"] == []
+
+
+def test_makerspace_list_uses_slim_serializer_for_disabled_space_for_superadmin():
+    hidden_space = make_space("access-hidden-list")
+    hidden_space.superadmin_access_enabled = False
+    hidden_space.save(update_fields=["superadmin_access_enabled"])
+    visible_space = make_space("access-visible-list")
+    superadmin = make_superadmin("access-list-super")
+
+    response = authenticated_client(superadmin).get(reverse("admin-makerspaces"))
+
+    assert response.status_code == 200
+    rows = {row["id"]: row for row in response.data}
+    assert rows[hidden_space.id]["superadmin_access_enabled"] is False
+    assert "public_api_key" not in rows[hidden_space.id]
+    assert "cors_allowed_origins" not in rows[hidden_space.id]
+    assert "smtp_host" not in rows[hidden_space.id]
+    assert "public_api_key" in rows[visible_space.id]
+
+
+def test_member_of_disabled_space_unaffected():
+    hidden_space = make_space("access-hidden-member")
+    hidden_space.superadmin_access_enabled = False
+    hidden_space.save(update_fields=["superadmin_access_enabled"])
+    space_manager = make_member(
+        "access-hidden-member-manager",
+        hidden_space,
+        membership_role=MakerspaceMembership.Role.SPACE_MANAGER,
+        role=User.Role.SPACE_MANAGER,
+    )
+
+    response = authenticated_client(space_manager).get(reverse("admin-makerspaces"))
+
+    assert response.status_code == 200
+    rows = {row["id"]: row for row in response.data}
+    assert set(rows) == {hidden_space.id}
+    assert rows[hidden_space.id]["superadmin_access_enabled"] is False
+    assert "public_api_key" in rows[hidden_space.id]

@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncDay, TruncHour, TruncMonth
 
+from apps.accounts import rbac
 from apps.printing.models import FilamentSpool, PrintRequest
 
 
@@ -22,6 +23,11 @@ def build_printing_report(makerspace_id=None, *, include_makerspace=False):
     if makerspace_id is not None:
         requests = requests.filter(bucket__makerspace_id=makerspace_id)
         spools = spools.filter(makerspace_id=makerspace_id)
+    else:
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        if hidden:
+            requests = requests.exclude(bucket__makerspace_id__in=hidden)
+            spools = spools.exclude(makerspace_id__in=hidden)
 
     return {
         "totals": _totals(requests),

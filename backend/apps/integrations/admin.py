@@ -1,0 +1,14 @@
+from django.contrib import admin
+
+from config.admin_access import SuperuserOnlyModelAdmin
+
+from apps.integrations.models import PlatformEmailSettings
+
+
+@admin.register(PlatformEmailSettings)
+class PlatformEmailSettingsAdmin(SuperuserOnlyModelAdmin, admin.ModelAdmin):
+    list_display = ("smtp_host", "smtp_port", "from_email", "updated_at")
+    # smtp_password holds the Fernet-encrypted value; never edit it as raw ciphertext
+    # in the admin. The React superadmin Platform Email panel is the write surface.
+    exclude = ("smtp_password",)
+    readonly_fields = ("updated_at",)

@@ -7,8 +7,11 @@ import { Panel, useStaffGet, type Makerspace } from "./shared";
 import {
   AddStaffModal,
   CreateMakerspaceModal,
+  ResetPasswordModal,
   RestrictUserModal,
   type MakerspaceForm,
+  type ResetPasswordForm,
+  type ResetPasswordResult,
   type RestrictForm,
   type StaffForm,
 } from "./UsersModals";
@@ -42,7 +45,14 @@ const emptyStaffForm: StaffForm = {
   makerspace_id: "",
 };
 const emptyRestrictForm: RestrictForm = { status: "restricted", reason: "" };
-const emptyMakerspaceForm: MakerspaceForm = { name: "", public_code: "", slug: "", location: "" };
+const emptyMakerspaceForm: MakerspaceForm = {
+  name: "",
+  public_code: "",
+  slug: "",
+  location: "",
+  superadmin_access_enabled: true,
+};
+const emptyResetPasswordForm: ResetPasswordForm = { password: "" };
 
 export function Users({ makerspaces, isSuperadmin }: { makerspaces: Makerspace[]; isSuperadmin: boolean }) {
   const queryClient = useQueryClient();
@@ -54,6 +64,9 @@ export function Users({ makerspaces, isSuperadmin }: { makerspaces: Makerspace[]
   const [restrictTarget, setRestrictTarget] = useState<StaffMembership | null>(null);
   const [restrictForm, setRestrictForm] = useState<RestrictForm>(emptyRestrictForm);
   const [restoreTarget, setRestoreTarget] = useState<StaffMembership | null>(null);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<StaffMembership | null>(null);
+  const [resetPasswordForm, setResetPasswordForm] = useState<ResetPasswordForm>(emptyResetPasswordForm);
+  const [resetPasswordResult, setResetPasswordResult] = useState<ResetPasswordResult | null>(null);
 
   const spaceManagers = useStaffGet<StaffListResponse>(["staff", "users", "space_manager"], "/admin/users/space-managers");
   const inventoryManagers = useStaffGet<StaffListResponse>(["staff", "users", "inventory_manager"], "/admin/users/inventory-managers");
@@ -103,6 +116,22 @@ export function Users({ makerspaces, isSuperadmin }: { makerspaces: Makerspace[]
       invalidateStaff();
     },
   });
+  const resetPassword = useMutation({
+    mutationFn: () => {
+      if (!resetPasswordTarget) {
+        throw new Error("No user selected");
+      }
+      const password = resetPasswordForm.password;
+      return staffRequest<ResetPasswordResult>(`/admin/users/${resetPasswordTarget.user.id}/reset-password`, {
+        method: "POST",
+        body: JSON.stringify(password ? { password } : {}),
+      });
+    },
+    onSuccess: (result) => {
+      setResetPasswordResult(result);
+      invalidateStaff();
+    },
+  });
   const createMakerspace = useMutation({
     mutationFn: () =>
       staffRequest("/admin/makerspaces", {
@@ -123,6 +152,18 @@ export function Users({ makerspaces, isSuperadmin }: { makerspaces: Makerspace[]
   const openRestrict = (membership: StaffMembership) => {
     setRestrictTarget(membership);
     setRestrictForm(emptyRestrictForm);
+  };
+  const openResetPassword = (membership: StaffMembership) => {
+    resetPassword.reset();
+    setResetPasswordTarget(membership);
+    setResetPasswordForm(emptyResetPasswordForm);
+    setResetPasswordResult(null);
+  };
+  const closeResetPassword = () => {
+    resetPassword.reset();
+    setResetPasswordTarget(null);
+    setResetPasswordForm(emptyResetPasswordForm);
+    setResetPasswordResult(null);
   };
   const panelError = lists.find((list) => list.error)?.error?.message ?? restore.error?.message;
 
@@ -161,6 +202,7 @@ export function Users({ makerspaces, isSuperadmin }: { makerspaces: Makerspace[]
           loading={lists[activeIndex]?.isLoading ?? false}
           onRestrict={openRestrict}
           onRestore={setRestoreTarget}
+          onResetPassword={openResetPassword}
         />
       </div>
 
@@ -193,6 +235,17 @@ export function Users({ makerspaces, isSuperadmin }: { makerspaces: Makerspace[]
         onClose={() => setMakerspaceOpen(false)}
         onSubmit={() => createMakerspace.mutate()}
       />
+      <ResetPasswordModal
+        open={Boolean(resetPasswordTarget)}
+        userLabel={resetPasswordTarget?.user.username ?? ""}
+        form={resetPasswordForm}
+        pending={resetPassword.isPending}
+        error={resetPassword.error}
+        result={resetPasswordResult}
+        onChange={setResetPasswordForm}
+        onClose={closeResetPassword}
+        onSubmit={() => resetPassword.mutate()}
+      />
       <ConfirmDialog
         open={Boolean(restoreTarget)}
         title="Restore access"
@@ -208,12 +261,13 @@ export function Users({ makerspaces, isSuperadmin }: { makerspaces: Makerspace[]
   );
 }
 
-function StaffTable({ rows, makerspaceNames, loading, onRestrict, onRestore }: {
+function StaffTable({ rows, makerspaceNames, loading, onRestrict, onRestore, onResetPassword }: {
   rows: StaffMembership[];
   makerspaceNames: Map<number, string>;
   loading: boolean;
   onRestrict: (membership: StaffMembership) => void;
   onRestore: (membership: StaffMembership) => void;
+  onResetPassword: (membership: StaffMembership) => void;
 }) {
   if (loading) return <p className="text-sm text-muted">Loading staff...</p>;
   if (!rows.length) return <EmptyState title="No staff" description="No memberships exist for this role." />;
@@ -240,6 +294,9 @@ function StaffTable({ rows, makerspaceNames, loading, onRestrict, onRestore }: {
                 <div className="desk-actions flex flex-wrap justify-end gap-2">
                   <button className="desk-button" type="button" onClick={() => onRestrict(membership)}>
                     Restrict
+                  </button>
+                  <button className="desk-button" type="button" onClick={() => onResetPassword(membership)}>
+                    Reset password
                   </button>
                   <button
                     className="desk-button"
@@ -291,5 +348,6 @@ function makerspacePayload(form: MakerspaceForm) {
     public_code: form.public_code.trim(),
     slug: form.slug.trim(),
     location: form.location.trim(),
+    superadmin_access_enabled: form.superadmin_access_enabled,
   };
 }

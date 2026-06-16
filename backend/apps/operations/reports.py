@@ -1,5 +1,6 @@
 from django.db.models import Count, Sum
 
+from apps.accounts import rbac
 from apps.boxes.models import QrScanEvent
 from apps.hardware_requests.models import HardwareRequest, HardwareRequestItem
 from apps.inventory.models import InventoryAsset, InventoryProduct
@@ -50,13 +51,9 @@ def report_rows(report_key, makerspace_id=None):
 
 
 def _summary(makerspace_id):
-    products = InventoryProduct.objects.all()
-    assets = InventoryAsset.objects.all()
-    requests = HardwareRequest.objects.all()
-    if makerspace_id is not None:
-        products = products.filter(makerspace_id=makerspace_id)
-        assets = assets.filter(makerspace_id=makerspace_id)
-        requests = requests.filter(makerspace_id=makerspace_id)
+    products = _products(makerspace_id)
+    assets = _assets(makerspace_id)
+    requests = _requests(makerspace_id)
     return {
         "products": products.filter(is_archived=False).count(),
         "assets": assets.count(),
@@ -197,22 +194,42 @@ def _product_quantity_rows(makerspace_id, aggregate, values, header):
 
 def _products(makerspace_id):
     qs = InventoryProduct.objects.all()
-    return qs if makerspace_id is None else qs.filter(makerspace_id=makerspace_id)
+    if makerspace_id is None:
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        return qs.exclude(makerspace_id__in=hidden) if hidden else qs
+    return qs.filter(makerspace_id=makerspace_id)
+
+
+def _assets(makerspace_id):
+    qs = InventoryAsset.objects.all()
+    if makerspace_id is None:
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        return qs.exclude(makerspace_id__in=hidden) if hidden else qs
+    return qs.filter(makerspace_id=makerspace_id)
 
 
 def _items(makerspace_id):
     qs = HardwareRequestItem.objects.select_related("request", "product")
-    return qs if makerspace_id is None else qs.filter(request__makerspace_id=makerspace_id)
+    if makerspace_id is None:
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        return qs.exclude(request__makerspace_id__in=hidden) if hidden else qs
+    return qs.filter(request__makerspace_id=makerspace_id)
 
 
 def _requests(makerspace_id):
     qs = HardwareRequest.objects.all()
-    return qs if makerspace_id is None else qs.filter(makerspace_id=makerspace_id)
+    if makerspace_id is None:
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        return qs.exclude(makerspace_id__in=hidden) if hidden else qs
+    return qs.filter(makerspace_id=makerspace_id)
 
 
 def _qr_events(makerspace_id):
     qs = QrScanEvent.objects.all()
-    return qs if makerspace_id is None else qs.filter(makerspace_id=makerspace_id)
+    if makerspace_id is None:
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        return qs.exclude(makerspace_id__in=hidden) if hidden else qs
+    return qs.filter(makerspace_id=makerspace_id)
 
 
 def _value(source, key):

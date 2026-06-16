@@ -245,6 +245,18 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "checkin_verify": env("THROTTLE_CHECKIN_VERIFY", default="30/min"),
         "login": env("THROTTLE_LOGIN", default="10/min"),
+        "password_reset_request": env(
+            "THROTTLE_PASSWORD_RESET_REQUEST",
+            default="5/min",
+        ),
+        "password_reset_email": env(
+            "THROTTLE_PASSWORD_RESET_EMAIL",
+            default="5/hour",
+        ),
+        "password_reset_confirm": env(
+            "THROTTLE_PASSWORD_RESET_CONFIRM",
+            default="10/min",
+        ),
         "public_request_submit": env(
             "THROTTLE_PUBLIC_REQUEST_SUBMIT",
             default="10/min",

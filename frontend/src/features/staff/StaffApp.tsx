@@ -15,7 +15,9 @@ import { ApiClientsPanel } from "./ApiClientsPanel";
 import { DirectLoans } from "./DirectLoans";
 import { ChangePasswordGate } from "./ChangePasswordGate";
 import { LoginPanel } from "./LoginPanel";
+import { MakerspaceSettingsPanel } from "./MakerspaceSettingsPanel";
 import { MakerspacePicker } from "./MakerspacePicker";
+import { PlatformEmailPanel } from "./PlatformEmailPanel";
 import {
   AuditLog,
   BulkImport,
@@ -41,7 +43,7 @@ import {
 
 const ALL_TABS = [
   "requests", "direct", "inventory", "needsfix", "categories", "printing", "tobuy", "transfers",
-  "stocktake", "containers", "ledger", "reports", "bulk", "qr", "scanner", "frontends", "api", "users", "audit",
+  "stocktake", "containers", "ledger", "reports", "bulk", "qr", "scanner", "frontends", "api", "settings", "users", "platform", "audit",
 ] as const;
 // Membership roles that get the full staff console. Anything else (print_manager,
 // or an unknown role) is failed closed to the 3D-printing surfaces only.
@@ -213,6 +215,8 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
     if (tabName === "needsfix") return canEditInventory;
     if (tabName === "containers") return canEditInventory; // MANAGE_QR roles (space/inventory mgr + superadmin)
     if (tabName === "frontends") return canManageMakerspace;
+    if (tabName === "settings") return canManageMakerspace;
+    if (tabName === "platform") return isSuperadmin;
     if (tabName === "printing") return canSeePrinting; // hide printer/spool mgmt from inventory managers
     if (tabName === "requests") return canSeeHardware || canSeePrinting;
     return true;
@@ -259,7 +263,7 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
                 }`}
                 onClick={() => setTab(item)}
               >
-                  {item === "qr" ? "QR Tools" : item === "direct" ? "Direct handout" : item === "api" ? "API access" : item === "stocktake" ? "Stocktake" : item === "printing" ? "3D Printing" : item === "tobuy" ? "To Buy" : item === "needsfix" ? "To-be-fixed" : item === "containers" ? "Containers" : item === "frontends" ? "Frontends" : item[0].toUpperCase() + item.slice(1)}
+                  {item === "qr" ? "QR Tools" : item === "direct" ? "Direct handout" : item === "api" ? "API access" : item === "stocktake" ? "Stocktake" : item === "printing" ? "3D Printing" : item === "tobuy" ? "To Buy" : item === "needsfix" ? "To-be-fixed" : item === "containers" ? "Containers" : item === "frontends" ? "Frontends" : item === "platform" ? "Platform email" : item === "settings" ? "Settings" : item[0].toUpperCase() + item.slice(1)}
               </button>
             ))}
           </nav>
@@ -347,8 +351,12 @@ export function StaffApp({ guestOnly = false }: { guestOnly?: boolean }) {
           {activeMakerspace && activeTab === "scanner" ? <ScannerPanel makerspace={activeMakerspace} /> : null}
           {activeMakerspace && activeTab === "frontends" ? <TenantFrontendsPanel makerspace={activeMakerspace} /> : null}
           {activeMakerspace && activeTab === "api" ? (
-            <ApiClientsPanel makerspace={activeMakerspace} isSuperadmin={isSuperadmin} />
+            <ApiClientsPanel makerspace={activeMakerspace} isSuperadmin={isSuperadmin} canManageMakerspace={canManageMakerspace} />
           ) : null}
+          {activeMakerspace && activeTab === "settings" ? (
+            <MakerspaceSettingsPanel makerspace={activeMakerspace} isSuperadmin={isSuperadmin} />
+          ) : null}
+          {activeMakerspace && activeTab === "platform" ? <PlatformEmailPanel /> : null}
           {activeMakerspace && activeTab === "users" ? (
             <Users makerspaces={makerspaces.data ?? []} isSuperadmin={isSuperadmin} />
           ) : null}

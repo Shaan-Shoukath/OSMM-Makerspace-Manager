@@ -156,6 +156,7 @@ class ManagedPrintFileUrlView(APIView):
                 filename=print_file.original_filename or "",
                 content_type=print_file.content_type or "",
                 as_attachment=(print_file.kind != "screenshot"),
+                kind=print_file.kind,
             )
         except StorageUnavailable:
             return Response(

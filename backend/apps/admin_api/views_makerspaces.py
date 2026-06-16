@@ -8,6 +8,7 @@ from apps.accounts import rbac
 from apps.accounts.models import User
 from apps.admin_api.permissions import IsActiveStaff, require_action
 from apps.admin_api.serializers_makerspaces import (
+    MakerspaceDisabledRowSerializer,
     MakerspaceSerializer,
     MakerspaceSwitcherSerializer,
     ReturnPolicySerializer,
@@ -53,8 +54,11 @@ class MakerspaceListCreateView(generics.ListCreateAPIView):
         # leak B's config. Settings writes stay MANAGE_MAKERSPACE-gated elsewhere.
         view_scope = rbac.makerspaces_for_action(request.user, rbac.Action.VIEW_INVENTORY)
         context = self.get_serializer_context()
+        is_superadmin = request.user.is_superuser or request.user.role == User.Role.SUPERADMIN
 
         def serialize(makerspace):
+            if is_superadmin and not makerspace.superadmin_access_enabled:
+                return MakerspaceDisabledRowSerializer(makerspace, context=context).data
             can_view = view_scope is rbac.ALL or makerspace.id in view_scope
             serializer = MakerspaceSerializer if can_view else MakerspaceSwitcherSerializer
             return serializer(makerspace, context=context).data
@@ -79,6 +83,20 @@ class MakerspaceDetailView(generics.RetrieveUpdateAPIView):
     permission_classes = [IsActiveStaff]
     http_method_names = ["get", "patch", "head", "options"]
 
+    def get_serializer_class(self):
+        # self.request is None during schema generation; the user may be Anonymous.
+        if self.request is not None and self.request.method == "GET":
+            makerspace = getattr(self, "_makerspace_object", None)
+            actor = getattr(self.request, "user", None)
+            is_superadmin = bool(
+                actor
+                and getattr(actor, "is_authenticated", False)
+                and (actor.is_superuser or getattr(actor, "role", None) == User.Role.SUPERADMIN)
+            )
+            if makerspace is not None and is_superadmin and not makerspace.superadmin_access_enabled:
+                return MakerspaceDisabledRowSerializer
+        return MakerspaceSerializer
+
     def get_queryset(self):
         action = (
             rbac.Action.MANAGE_MAKERSPACE
@@ -87,7 +105,12 @@ class MakerspaceDetailView(generics.RetrieveUpdateAPIView):
         )
         return rbac.scope_by_action(self.request.user, action, Makerspace.objects.all(), field="id")
 
+    def get_object(self):
+        self._makerspace_object = super().get_object()
+        return self._makerspace_object
+
     def perform_update(self, serializer):
+        was_enabled = serializer.instance.superadmin_access_enabled
         instance = serializer.save()
         audit.record(
             self.request.user,
@@ -95,6 +118,14 @@ class MakerspaceDetailView(generics.RetrieveUpdateAPIView):
             makerspace=instance,
             target=instance,
         )
+        if was_enabled != instance.superadmin_access_enabled:
+            audit.record(
+                self.request.user,
+                "makerspace.superadmin_access_changed",
+                makerspace=instance,
+                target=instance,
+                meta={"enabled": instance.superadmin_access_enabled},
+            )
 
 
 @extend_schema(tags=["Admin makerspaces"], summary="Retrieve or update return policy")

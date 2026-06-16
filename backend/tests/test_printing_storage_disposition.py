@@ -57,3 +57,25 @@ def test_download_disposition_falls_back_to_download_name(
 
     assert_attachment_header(header)
     assert download_name in header
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type", "expected"),
+    [
+        # The reported bug: STL uploaded as octet-stream with no stored filename used to
+        # download as a plain "download" (no extension, unopenable). kind rescues it.
+        ("", "application/octet-stream", "download.stl"),
+        # A stored name without an extension also gets the model extension appended.
+        ("model", "application/octet-stream", "model.stl"),
+        # A proper name keeps its own extension — no doubling.
+        ("widget.stl", "application/octet-stream", "widget.stl"),
+        ("part.3mf", "application/octet-stream", "part.3mf"),
+    ],
+)
+def test_download_disposition_guarantees_model_extension(filename, content_type, expected):
+    header = _download_disposition(filename, content_type, kind="stl")
+
+    assert_attachment_header(header)
+    assert expected in header
+    # No double extension when the name already had one.
+    assert ".stl.stl" not in header

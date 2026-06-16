@@ -1,6 +1,11 @@
+import logging
+
 from django.conf import settings
+from django.contrib.auth.tokens import default_token_generator
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -18,9 +23,13 @@ from apps.accounts.auth_cookies import (
 )
 from apps.accounts.models import User
 from apps.accounts.serializers import LoginSerializer, user_payload
+from apps.accounts.throttles import PasswordResetEmailThrottle
 from apps.audit import services as audit
+from apps.integrations.email import send_password_reset_email
 from apps.openapi import LOGIN_EXAMPLE
 
+
+logger = logging.getLogger(__name__)
 
 UserPayloadSerializer = inline_serializer(
     name="AuthUserPayload",
@@ -61,6 +70,16 @@ ChangePasswordResponseSerializer = inline_serializer(
     name="ChangePasswordResponse",
     fields={"detail": serializers.CharField()},
 )
+
+
+class ForgotPasswordRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+
+class ResetPasswordConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True)
 
 
 class ChangePasswordSerializer(serializers.Serializer):
@@ -225,6 +244,89 @@ class ChangePasswordView(APIView):
         user.save(update_fields=["password", "must_change_password"])
         _blacklist_outstanding_tokens(user)
         audit.record(user, "user.password_changed", target=user)
+        return Response({"detail": "Password updated."})
+
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle, PasswordResetEmailThrottle]
+    throttle_scope = "password_reset_request"
+
+    @extend_schema(
+        tags=["Auth"],
+        summary="Request a password reset email",
+        auth=[],
+        request=ForgotPasswordRequestSerializer,
+        responses={200: OpenApiResponse(description="Generic acknowledgement.")},
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = ForgotPasswordRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"].strip().lower()
+        try:
+            user = (
+                User.objects.filter(
+                    email__iexact=email,
+                    is_active=True,
+                    access_status=User.AccessStatus.ACTIVE,
+                )
+                .exclude(email="")
+                .first()
+            )
+            if user:
+                uid = urlsafe_base64_encode(force_bytes(user.pk))
+                token = default_token_generator.make_token(user)
+                base = settings.PUBLIC_APP_BASE_URL or ""
+                reset_url = f"{base}/reset-password?uid={uid}&token={token}"
+                send_password_reset_email(user.email, reset_url)
+        except Exception:
+            logger.exception("Password reset request failed for an email")
+        return Response(
+            {"detail": "If an account exists for that email, a reset link has been sent."}
+        )
+
+
+class ResetPasswordConfirmView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "password_reset_confirm"
+
+    @extend_schema(
+        tags=["Auth"],
+        summary="Confirm a password reset",
+        auth=[],
+        request=ResetPasswordConfirmSerializer,
+        responses={
+            200: OpenApiResponse(description="Password updated."),
+            400: OpenApiResponse(description="Invalid/expired token or password."),
+        },
+    )
+    def post(self, request, *args, **kwargs):
+        serializer = ResetPasswordConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        bad = serializers.ValidationError({"detail": "Invalid or expired reset link."})
+        try:
+            uid = force_str(urlsafe_base64_decode(data["uid"]))
+            user = User.objects.filter(pk=uid).first()
+        except (ValueError, TypeError, OverflowError):
+            user = None
+        if user is None:
+            raise bad
+        if not (user.is_active and user.access_status == User.AccessStatus.ACTIVE):
+            raise bad
+        if not default_token_generator.check_token(user, data["token"]):
+            raise bad
+        try:
+            validate_password(data["new_password"], user=user)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"new_password": list(exc.messages)}) from exc
+
+        user.set_password(data["new_password"])
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password"])
+        _blacklist_outstanding_tokens(user)
+        audit.record(user, "user.password_reset_via_email", target=user)
         return Response({"detail": "Password updated."})
 
 

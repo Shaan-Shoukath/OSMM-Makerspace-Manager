@@ -3677,6 +3677,75 @@
                 }
             }
         },
+        "/api/v1/admin/platform/email-settings": {
+            "get": {
+                "operationId": "api_v1_admin_platform_email_settings_retrieve",
+                "summary": "Retrieve or update platform email settings",
+                "tags": [
+                    "Platform"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PlatformEmailSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "api_v1_admin_platform_email_settings_partial_update",
+                "summary": "Retrieve or update platform email settings",
+                "tags": [
+                    "Platform"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPlatformEmailSettings"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPlatformEmailSettings"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedPlatformEmailSettings"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PlatformEmailSettings"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/admin/products/{id}/assets/generate": {
             "post": {
                 "operationId": "api_v1_admin_products_assets_generate_create",
@@ -5067,6 +5136,61 @@
                 }
             }
         },
+        "/api/v1/admin/users/{id}/reset-password": {
+            "post": {
+                "operationId": "api_v1_admin_users_reset_password_create",
+                "summary": "Reset a staff user's password (temp + force change)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Admin users"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetPasswordRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetPasswordRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetPasswordRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ResetPasswordResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/admin/users/{id}/restore-access": {
             "post": {
                 "operationId": "api_v1_admin_users_restore_access_create",
@@ -5544,6 +5668,40 @@
                 }
             }
         },
+        "/api/v1/auth/forgot-password": {
+            "post": {
+                "operationId": "api_v1_auth_forgot_password_create",
+                "summary": "Request a password reset email",
+                "tags": [
+                    "Auth"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ForgotPasswordRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ForgotPasswordRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ForgotPasswordRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Generic acknowledgement."
+                    }
+                }
+            }
+        },
         "/api/v1/auth/login": {
             "post": {
                 "operationId": "api_v1_auth_login_create",
@@ -5681,6 +5839,43 @@
                     },
                     "403": {
                         "description": "CSRF check failed or account restricted."
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/reset-password": {
+            "post": {
+                "operationId": "api_v1_auth_reset_password_create",
+                "summary": "Confirm a password reset",
+                "tags": [
+                    "Auth"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetPasswordConfirm"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetPasswordConfirm"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ResetPasswordConfirm"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Password updated."
+                    },
+                    "400": {
+                        "description": "Invalid/expired token or password."
                     }
                 }
             }
@@ -10480,6 +10675,18 @@
                     "remaining_weight_grams"
                 ]
             },
+            "ForgotPasswordRequest": {
+                "type": "object",
+                "properties": {
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    }
+                },
+                "required": [
+                    "email"
+                ]
+            },
             "FrontendTypeEnum": {
                 "enum": [
                     "public_portal",
@@ -10828,6 +11035,9 @@
                         "maxLength": 200
                     },
                     "public_inventory_enabled": {
+                        "type": "boolean"
+                    },
+                    "superadmin_access_enabled": {
                         "type": "boolean"
                     },
                     "public_api_key": {
@@ -11860,6 +12070,9 @@
                     "public_inventory_enabled": {
                         "type": "boolean"
                     },
+                    "superadmin_access_enabled": {
+                        "type": "boolean"
+                    },
                     "public_api_key": {
                         "type": "string",
                         "readOnly": true
@@ -11921,6 +12134,52 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                }
+            },
+            "PatchedPlatformEmailSettings": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "smtp_host": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "smtp_port": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "smtp_username": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "smtp_password": {
+                        "type": "string",
+                        "writeOnly": true
+                    },
+                    "smtp_password_set": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "smtp_use_tls": {
+                        "type": "boolean"
+                    },
+                    "smtp_use_ssl": {
+                        "type": "boolean"
+                    },
+                    "from_email": {
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 254
                     },
                     "updated_at": {
                         "type": "string",
@@ -12114,6 +12373,57 @@
                         "readOnly": true
                     }
                 }
+            },
+            "PlatformEmailSettings": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "smtp_host": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "smtp_port": {
+                        "type": "integer",
+                        "maximum": 2147483647,
+                        "minimum": 0
+                    },
+                    "smtp_username": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "smtp_password": {
+                        "type": "string",
+                        "writeOnly": true
+                    },
+                    "smtp_password_set": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "smtp_use_tls": {
+                        "type": "boolean"
+                    },
+                    "smtp_use_ssl": {
+                        "type": "boolean"
+                    },
+                    "from_email": {
+                        "type": "string",
+                        "format": "email",
+                        "maxLength": 254
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "smtp_password_set",
+                    "updated_at"
+                ]
             },
             "PrintBucket": {
                 "type": "object",
@@ -13848,6 +14158,51 @@
                 "required": [
                     "public_token",
                     "status"
+                ]
+            },
+            "ResetPasswordConfirm": {
+                "type": "object",
+                "properties": {
+                    "uid": {
+                        "type": "string"
+                    },
+                    "token": {
+                        "type": "string"
+                    },
+                    "new_password": {
+                        "type": "string",
+                        "writeOnly": true
+                    }
+                },
+                "required": [
+                    "new_password",
+                    "token",
+                    "uid"
+                ]
+            },
+            "ResetPasswordRequest": {
+                "type": "object",
+                "properties": {
+                    "password": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 8
+                    }
+                }
+            },
+            "ResetPasswordResponse": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string"
+                    },
+                    "temporary_password": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "temporary_password",
+                    "username"
                 ]
             },
             "RestrictUser": {

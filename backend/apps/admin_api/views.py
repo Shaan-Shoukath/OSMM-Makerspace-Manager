@@ -25,6 +25,7 @@ from apps.admin_api.views_makerspaces import (
 from apps.admin_api.views_users import (
     AuditLogListView,
     AuditLogPagination,
+    ResetUserPasswordView,
     RestoreUserAccessView,
     RestrictUserView,
     StaffListCreateView,
@@ -46,6 +47,7 @@ __all__ = [
     "NeedsFixActionView",
     "MakerspaceDetailView",
     "MakerspaceListCreateView",
+    "ResetUserPasswordView",
     "RestoreUserAccessView",
     "RestrictUserView",
     "ReturnPolicyView",

@@ -1,4 +1,5 @@
 import { ThemeToggle } from "../../components/ThemeToggle";
+import { Badge } from "../../components/ui";
 import type { Makerspace } from "./StaffPanels";
 
 /**
@@ -56,6 +57,11 @@ export function MakerspacePicker({
                   {makerspace.public_code ?? makerspace.slug}
                 </span>
                 <span className="text-lg font-semibold text-ink">{makerspace.name}</span>
+                {makerspace.superadmin_access_enabled === false ? (
+                  <span className="mt-1">
+                    <Badge tone="warn">Superadmin access: Off</Badge>
+                  </span>
+                ) : null}
                 <span className="mt-2 text-xs text-muted">Operate this makerspace →</span>
               </button>
             ))}

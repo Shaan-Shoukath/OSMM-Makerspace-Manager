@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from django.db.models import F
 
+from apps.accounts import rbac
 from apps.hardware_requests.models import HardwareRequest, HardwareRequestItem
 from apps.hardware_requests.self_checkout_models import PublicToolLoan
 
@@ -43,6 +44,10 @@ def _request_item_rows(makerspace_id):
     )
     if makerspace_id is not None:
         queryset = queryset.filter(request__makerspace_id=makerspace_id)
+    else:
+        hidden = rbac.superadmin_hidden_makerspace_ids()
+        if hidden:
+            queryset = queryset.exclude(request__makerspace_id__in=hidden)
 
     rows = []
     for item in queryset.order_by("-request__issued_at", "request_id", "id"):

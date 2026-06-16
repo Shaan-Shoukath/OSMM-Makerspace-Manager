@@ -59,6 +59,20 @@ class RestrictUserSerializer(serializers.Serializer):
     )
 
 
+class ResetPasswordRequestSerializer(serializers.Serializer):
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=False,
+        min_length=8,
+    )
+
+
+class ResetPasswordResponseSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    temporary_password = serializers.CharField()
+
+
 class AuditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = AuditLog

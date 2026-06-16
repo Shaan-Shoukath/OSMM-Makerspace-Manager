@@ -318,56 +318,70 @@ def test_inventory_quantity_adjustment_hides_cross_tenant_product_before_permiss
     assert response.status_code == 404
 
 
-def test_api_client_rest_is_superadmin_only():
+def test_api_client_rest_allows_makerspace_admin_and_scopes_others():
+    # Feature B: API-client management is self-serve for the makerspace admin
+    # (MANAGE_MAKERSPACE == Space Manager); superadmin retains access; everyone
+    # else is denied / scoped out.
     makerspace = make_space("client-space")
-    admin = make_member("client-admin", makerspace)
+    other_space = make_space("client-space-other")
+    admin = make_member("client-admin", makerspace)  # SPACE_MANAGER
     admin_client = authenticated_client(admin)
 
-    denied_create = admin_client.post(
+    created = admin_client.post(
         f"/api/v1/admin/makerspace/{makerspace.id}/api-clients",
-        {
-            "label": "Public web",
-            "allowed_origins": ["https://lab.example.com"],
-        },
+        {"label": "Public web", "allowed_origins": ["https://lab.example.com"]},
         format="json",
     )
-    denied_list = admin_client.get(
+    assert created.status_code == 201
+    assert created.data["client_id"].startswith("ck_")
+    assert created.data["client_secret"]  # one-time secret revealed to the makerspace admin
+    assert created.data["allowed_origins"] == ["https://lab.example.com"]
+    assert created.data["public_makerspace_code"] == makerspace.public_code
+
+    listed = admin_client.get(f"/api/v1/admin/makerspace/{makerspace.id}/api-clients")
+    assert listed.status_code == 200
+    assert listed.data["results"][0]["client_id"] == created.data["client_id"]
+
+    detail = admin_client.get(f"/api/v1/admin/api-clients/{created.data['id']}")
+    assert detail.status_code == 200
+    assert detail.data["client_id"] == created.data["client_id"]
+
+    # An admin of a different makerspace cannot create here, and the client detail
+    # is scoped out (404 before 403).
+    other_admin = make_member("client-admin-other", other_space)
+    other_client = authenticated_client(other_admin)
+    denied_create = other_client.post(
+        f"/api/v1/admin/makerspace/{makerspace.id}/api-clients",
+        {"label": "X", "allowed_origins": ["https://x.example.com"]},
+        format="json",
+    )
+    assert denied_create.status_code in (403, 404)
+    assert other_client.get(f"/api/v1/admin/api-clients/{created.data['id']}").status_code == 404
+
+    # A non-MANAGE_MAKERSPACE member (guest admin) is denied.
+    guest = make_member(
+        "client-guest",
+        makerspace,
+        membership_role=MakerspaceMembership.Role.GUEST_ADMIN,
+        role=User.Role.GUEST_ADMIN,
+    )
+    denied_guest = authenticated_client(guest).get(
         f"/api/v1/admin/makerspace/{makerspace.id}/api-clients"
     )
+    assert denied_guest.status_code == 403
 
-    assert denied_create.status_code == 403
-    assert denied_list.status_code == 403
-    assert ApiClient.objects.count() == 0
-
+    # Superadmin still has access.
     superadmin = make_user(
         "client-super",
         role=User.Role.SUPERADMIN,
         access_status=User.AccessStatus.ACTIVE,
         is_superuser=True,
     )
-    client = authenticated_client(superadmin)
-    created = client.post(
-        f"/api/v1/admin/makerspace/{makerspace.id}/api-clients",
-        {
-            "label": "Public web",
-            "allowed_origins": ["https://lab.example.com"],
-        },
-        format="json",
+    sa_listed = authenticated_client(superadmin).get(
+        f"/api/v1/admin/makerspace/{makerspace.id}/api-clients"
     )
-    listed = client.get(f"/api/v1/admin/makerspace/{makerspace.id}/api-clients")
-    denied_detail = admin_client.get(f"/api/v1/admin/api-clients/{created.data['id']}")
-    detail = client.get(f"/api/v1/admin/api-clients/{created.data['id']}")
+    assert sa_listed.status_code == 200
 
-    assert created.status_code == 201
-    assert created.data["client_id"].startswith("ck_")
-    assert created.data["client_secret"]
-    assert created.data["allowed_origins"] == ["https://lab.example.com"]
-    assert created.data["public_makerspace_code"] == makerspace.public_code
-    assert listed.status_code == 200
-    assert listed.data["results"][0]["client_id"] == created.data["client_id"]
-    assert denied_detail.status_code == 403
-    assert detail.status_code == 200
-    assert detail.data["client_id"] == created.data["client_id"]
     assert ApiClient.objects.get().get_secret() == created.data["client_secret"]
     makerspace.refresh_from_db()
     assert makerspace.cors_allowed_origins == ["https://lab.example.com"]

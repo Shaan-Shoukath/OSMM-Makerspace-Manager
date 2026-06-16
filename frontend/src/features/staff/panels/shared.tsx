@@ -9,6 +9,7 @@ export type Makerspace = {
   public_code: string;
   slug: string;
   telegram_group_chat_id: string;
+  superadmin_access_enabled?: boolean;
 };
 
 export type Product = {

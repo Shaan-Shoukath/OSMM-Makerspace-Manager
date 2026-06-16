@@ -1,5 +1,7 @@
+from django.db import transaction
 from rest_framework import serializers
 
+from apps.accounts.models import User
 from apps.makerspaces.models import Makerspace, TenantFrontend
 
 
@@ -26,6 +28,7 @@ class MakerspaceSerializer(serializers.ModelSerializer):
             "slug",
             "location",
             "public_inventory_enabled",
+            "superadmin_access_enabled",
             "public_api_key",
             "cors_allowed_origins",
             "enabled_modules",
@@ -72,14 +75,29 @@ class MakerspaceSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         telegram_bot_token = validated_data.pop("telegram_bot_token", None)
         smtp_password = validated_data.pop("smtp_password", None)
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        if telegram_bot_token:
-            instance.set_telegram_bot_token(telegram_bot_token)
-        if smtp_password:
-            instance.set_smtp_password(smtp_password)
-        instance.save()
-        return instance
+        new_flag = validated_data.pop("superadmin_access_enabled", None)
+        with transaction.atomic():
+            locked = Makerspace.objects.select_for_update().get(pk=instance.pk)
+            actor = self.context["request"].user
+            is_superadmin = actor.is_superuser or actor.role == User.Role.SUPERADMIN
+            if new_flag is not None and new_flag != locked.superadmin_access_enabled:
+                if new_flag is True and is_superadmin:
+                    raise serializers.ValidationError(
+                        {
+                            "superadmin_access_enabled": (
+                                "Only the makerspace admin can re-enable superadmin access."
+                            )
+                        }
+                    )
+                locked.superadmin_access_enabled = new_flag
+            for field, value in validated_data.items():
+                setattr(locked, field, value)
+            if telegram_bot_token:
+                locked.set_telegram_bot_token(telegram_bot_token)
+            if smtp_password:
+                locked.set_smtp_password(smtp_password)
+            locked.save()
+            return locked
 
 
 class MakerspaceSwitcherSerializer(serializers.ModelSerializer):
@@ -93,7 +111,27 @@ class MakerspaceSwitcherSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Makerspace
-        fields = ["id", "name", "public_code", "slug", "telegram_group_chat_id"]
+        fields = [
+            "id",
+            "name",
+            "public_code",
+            "slug",
+            "telegram_group_chat_id",
+        ]
+        read_only_fields = fields
+
+
+class MakerspaceDisabledRowSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Makerspace
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "public_code",
+            "location",
+            "superadmin_access_enabled",
+        ]
         read_only_fields = fields
 
 

@@ -9,6 +9,7 @@ import { PublicSelfCheckoutPage } from "./features/inventory/PublicSelfCheckoutP
 import { usePublicMakerspaces } from "./features/inventory/usePublicInventory";
 import { PublicPrintRequestPage } from "./features/printing/PublicPrintRequestPage";
 import { KioskPage, ScannerPage, SuperadminPage } from "./features/staff/PlatformApps";
+import { ResetPasswordPage } from "./features/staff/ResetPasswordPage";
 import { StaffApp } from "./features/staff/StaffApp";
 
 function LandingPage() {
@@ -154,6 +155,7 @@ export default function App() {
       <Route path="/m/:slug/checkout" element={<PublicSelfCheckoutPage />} />
       <Route path="/m/:slug/print" element={<PublicPrintRequestPage />} />
       <Route path="/kiosk/:slug" element={<KioskPage />} />
+      <Route path="/reset-password" element={<ResetPasswordPage />} />
       <Route path="/admin" element={<StaffApp />} />
       <Route path="/guest-admin" element={<StaffApp guestOnly />} />
       <Route path="/scanner" element={<ScannerPage />} />

@@ -64,7 +64,38 @@ def presigned_print_upload(object_key, content_type):
         raise StorageUnavailable from exc
 
 
-def _download_disposition(filename, content_type):
+# Model content-types map to a concrete extension; STL commonly arrives as
+# application/octet-stream (no hint), which is why model kind also has a hard default.
+_MODEL_EXT_BY_MIME = {
+    "model/stl": ".stl",
+    "application/sla": ".stl",
+    "application/vnd.ms-pki.stl": ".stl",
+    "model/3mf": ".3mf",
+    "application/vnd.ms-package.3dmanufacturing-3dmodel+xml": ".3mf",
+    "application/step": ".step",
+    "model/step": ".step",
+}
+_SCREENSHOT_EXT_BY_MIME = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/webp": ".webp",
+    "application/pdf": ".pdf",
+}
+
+
+def _fallback_extension(content_type, kind):
+    content_type = content_type or ""
+    ext = _MODEL_EXT_BY_MIME.get(content_type) or _SCREENSHOT_EXT_BY_MIME.get(content_type)
+    # Model kind without a precise mime (notably octet-stream, which mimetypes would
+    # otherwise guess as .bin) must still download as an openable model file → .stl.
+    if not ext and kind == "stl":
+        return ".stl"
+    if not ext and content_type:
+        ext = mimetypes.guess_extension(content_type) or ""
+    return ext
+
+
+def _download_disposition(filename, content_type, kind=None):
     raw_name = filename or ""
     safe_name = raw_name.replace("\\", "/").rsplit("/", 1)[-1]
     safe_name = "".join(
@@ -73,24 +104,18 @@ def _download_disposition(filename, content_type):
         if char != '"' and ord(char) >= 0x20 and ord(char) != 0x7F
     )
     if not safe_name:
-        extension_by_type = {
-            "model/stl": ".stl",
-            "model/3mf": ".3mf",
-            "application/octet-stream": "",
-            "image/png": ".png",
-            "image/jpeg": ".jpg",
-            "image/webp": ".webp",
-            "application/pdf": ".pdf",
-        }
-        extension = extension_by_type.get(
-            content_type,
-            mimetypes.guess_extension(content_type or "") or "",
-        )
-        safe_name = f"download{extension}"
+        safe_name = "download"
+    # Guarantee an extension so the OS can open the file. A stored "model.stl" keeps its
+    # extension; an empty/extensionless name (the bug: octet-stream STL with no filename
+    # produced a plain "download") gets one derived from content-type or kind.
+    if "." not in safe_name:
+        safe_name = f"{safe_name}{_fallback_extension(content_type, kind)}"
     return content_disposition_header(as_attachment=True, filename=safe_name)
 
 
-def print_get_url(object_key, *, filename=None, content_type=None, as_attachment=False):
+def print_get_url(
+    object_key, *, filename=None, content_type=None, as_attachment=False, kind=None
+):
     params = {"Bucket": settings.AWS_STORAGE_BUCKET_NAME, "Key": object_key}
     if content_type:
         params["ResponseContentType"] = content_type
@@ -98,6 +123,7 @@ def print_get_url(object_key, *, filename=None, content_type=None, as_attachment
         params["ResponseContentDisposition"] = _download_disposition(
             filename,
             content_type,
+            kind,
         )
     try:
         return _public_client().generate_presigned_url(

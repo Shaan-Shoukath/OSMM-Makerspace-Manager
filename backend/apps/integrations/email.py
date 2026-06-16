@@ -26,6 +26,52 @@ def makerspace_mail_connection(makerspace):
     )
 
 
+def platform_mail_connection():
+    """Connection + from-email for INSTANCE-WIDE auth mail (password resets).
+
+    Uses the superadmin-configured PlatformEmailSettings when a host is set; otherwise
+    returns (None, settings.DEFAULT_FROM_EMAIL) so Django's default EMAIL_BACKEND is used.
+    NEVER uses per-makerspace SMTP. If a platform host IS configured but broken, do NOT
+    silently fall back -- return its connection and let the caller's fail-safe handle errors.
+    """
+    from apps.integrations.models import PlatformEmailSettings
+
+    cfg = PlatformEmailSettings.load()
+    if not cfg.smtp_host:
+        return None, settings.DEFAULT_FROM_EMAIL
+    use_ssl = cfg.smtp_use_ssl
+    use_tls = cfg.smtp_use_tls and not use_ssl
+    return (
+        get_connection(
+            host=cfg.smtp_host,
+            port=cfg.smtp_port,
+            username=cfg.smtp_username or None,
+            password=cfg.get_smtp_password() or None,
+            use_tls=use_tls,
+            use_ssl=use_ssl,
+        ),
+        cfg.from_email or settings.DEFAULT_FROM_EMAIL,
+    )
+
+
+def send_password_reset_email(recipient, reset_url):
+    connection, from_email = platform_mail_connection()
+    subject = "Reset your password"
+    body = (
+        "We received a request to reset your password.\n\n"
+        f"Reset it here:\n{reset_url}\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+    msg = EmailMultiAlternatives(
+        subject=subject,
+        body=body,
+        from_email=from_email,
+        to=[recipient],
+        connection=connection,
+    )
+    return msg.send()
+
+
 def send_makerspace_email(makerspace, subject, body, recipients, html_body=None):
     recipients = [recipient for recipient in recipients if recipient]
     if not recipients:

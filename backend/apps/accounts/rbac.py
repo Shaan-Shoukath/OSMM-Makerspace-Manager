@@ -145,3 +145,25 @@ def can(actor, action, makerspace_id=None):
     if role is None:
         return False
     return action in _MEMBERSHIP_ROLE_ACTIONS.get(role, set())
+
+
+def superadmin_hidden_makerspace_ids():
+    from apps.makerspaces.models import Makerspace
+
+    return set(
+        Makerspace.objects.filter(superadmin_access_enabled=False).values_list(
+            "id",
+            flat=True,
+        )
+    )
+
+
+def hide_from_superadmin(actor, queryset, field="makerspace_id"):
+    if actor is None or not getattr(actor, "is_authenticated", False):
+        return queryset
+    if not (actor.is_superuser or actor.role == User.Role.SUPERADMIN):
+        return queryset
+    hidden = superadmin_hidden_makerspace_ids()
+    if not hidden:
+        return queryset
+    return queryset.exclude(**{f"{field}__in": hidden})

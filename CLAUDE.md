@@ -2,6 +2,57 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Recent batch — collaborative-makerspace self-governance (2026-06-16)
+
+Lets a collaborating makerspace operate independently of the superadmin. Five features (Codex
+plan-reviewed v1→v6; 443 tests green):
+
+- **Per-makerspace superadmin-access toggle (SOFT hide).** New `Makerspace.superadmin_access_enabled`
+  (default True; migration `makerspaces/0013`). When False the space's DATA is excluded from the
+  **superadmin's aggregate/list surfaces only** — `operations.reports` aggregate (all base helpers
+  incl. the new `_assets()`, and `_summary()` routed through them), `operations.ledger` aggregate,
+  `printing.reports` aggregate, `AuditLogListView` (applied **before** the `?makerspace=` filter so a
+  superadmin can't explicitly query a hidden space), `StaffListCreateView` superadmin branch, and the
+  Django `/control/` changelists. Core rbac scope functions are **untouched** (so this is a soft hide,
+  not a hard 403 — the superadmin keeps raw staff-API + DB access; that's out of band by design).
+  Helpers: `rbac.superadmin_hidden_makerspace_ids()` + `rbac.hide_from_superadmin(actor, qs, field)`.
+  Django admin: `SuperuserOnlyModelAdmin.resolve_hidden_lookup()` auto-detects a direct `makerspace`
+  FK (else a central `NESTED_MAKERSPACE_LOOKUPS` map; non-scoped models live in `GLOBAL_ADMIN_MODELS`)
+  and `get_queryset()` excludes hidden rows; a drift-guard test (`tests/test_admin_hidden_scope.py`)
+  walks every registered admin's relations to depth 3 and forces an explicit scoped/global decision so
+  a new admin can't silently leak. **Re-grant (False→True) is makerspace-admin-only** — enforced in
+  `MakerspaceSerializer.update()` with `transaction.atomic()` + `select_for_update()` against the FRESH
+  value (stale-PATCH-proof); a superadmin attempt 400s. Disabled rows are served to the superadmin via
+  a slim `MakerspaceDisabledRowSerializer` (id/name/slug/public_code/location/flag only — no
+  public_api_key/SMTP/CORS leak) in both list + detail GET. Frontend: create-form checkbox (superadmin),
+  a **Settings** tab (`MakerspaceSettingsPanel`, MANAGE_MAKERSPACE) with the toggle (re-enable disabled
+  for superadmin when off), and an "Superadmin access: Off" badge in `MakerspacePicker`.
+- **API-client self-serve (reverses the prior superadmin-only governance).** `ApiClientListCreateView`
+  + `ApiClientDetailView` moved from `IsActiveSuperAdmin` → `IsActiveStaff` + `require_action`/
+  `scope_by_action(MANAGE_MAKERSPACE)` (404-before-403). The makerspace admin now creates/lists/deletes
+  API clients with one-time secret reveal in `ApiClientsPanel` (gated on a new `canManageMakerspace`
+  prop; non-managers keep the `ApiKeyRequest` flow, left intact).
+- **Admin password reset (no-SMTP fallback).** `POST /admin/users/<pk>/reset-password` (IsActiveStaff)
+  sets a validator-checked temp password + `must_change_password`, returns it once, **repeatable**.
+  Guards: never a superadmin target; **existential** block — nobody (incl. superadmin) may reset a
+  user who holds SPACE_MANAGER in **any** hidden makerspace (closes the reset-SM→login→re-grant bypass);
+  non-superadmin may only reset users fully within their MANAGE_MAKERSPACE scope and never another
+  Space Manager. Frontend: per-row reset action in the Users panel (`ResetPasswordModal`).
+- **Self-service forgot/reset password via a COMMON instance SMTP.** `POST /auth/forgot-password` +
+  `/auth/reset-password` (AllowAny; enumeration-safe generic 200; fail-safe try/except; IP +
+  email-normalized throttles `password_reset_request`/`password_reset_email`/`password_reset_confirm`;
+  `default_token_generator`; link from `PUBLIC_APP_BASE_URL`; reset-confirm re-checks active/access
+  status; blacklists outstanding tokens). Sends via `integrations.email.platform_mail_connection()`
+  which uses the instance-wide **Platform Email** settings — **never** per-makerspace SMTP (a tenant
+  SMTP operator could otherwise intercept a global-account reset token = cross-tenant takeover).
+  Frontend: LoginPanel "Forgot password?" + public `/reset-password` route (`ResetPasswordPage`).
+- **Platform Email settings (superadmin).** Singleton `integrations.PlatformEmailSettings` (migration
+  `integrations/0001`) with the SMTP password **encrypted** via `API_CLIENT_ENC_KEY` (same Fernet helper
+  as makerspace secrets). `GET/PATCH /admin/platform/email-settings` (`IsActiveSuperAdmin`, write-only
+  password + `smtp_password_set` bool, audited). React superadmin **Platform email** tab; registered in
+  the `/control/` admin (Integrations group). `platform_mail_connection()` falls back to Django's
+  `EMAIL_*` default backend only when no platform host is set.
+
 ## Recent batch — console parity: surfacing orphaned backend lifecycles (2026-06-16)
 
 Audit-driven fix of a systemic class of flaw — backend lifecycle capabilities reachable in the

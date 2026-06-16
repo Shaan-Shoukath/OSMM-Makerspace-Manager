@@ -79,6 +79,7 @@ class PrintRequestAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
                         filename=f.original_filename,
                         content_type=f.content_type,
                         as_attachment=True,
+                        kind=f.kind,
                     )
                 except Exception:
                     url = ""

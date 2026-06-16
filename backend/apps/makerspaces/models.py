@@ -75,6 +75,7 @@ class Makerspace(models.Model):
     )
     location = models.CharField(max_length=200, blank=True)
     public_inventory_enabled = models.BooleanField(default=True)
+    superadmin_access_enabled = models.BooleanField(default=True)
     public_api_key = models.CharField(
         max_length=40,
         editable=False,

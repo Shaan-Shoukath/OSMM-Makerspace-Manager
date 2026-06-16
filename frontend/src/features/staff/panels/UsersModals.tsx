@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { Modal } from "../../../components/ui";
 import type { Makerspace } from "./shared";
@@ -13,7 +13,15 @@ export type StaffForm = {
   makerspace_id: string;
 };
 export type RestrictForm = { status: "restricted" | "suspended"; reason: string };
-export type MakerspaceForm = { name: string; public_code: string; slug: string; location: string };
+export type MakerspaceForm = {
+  name: string;
+  public_code: string;
+  slug: string;
+  location: string;
+  superadmin_access_enabled: boolean;
+};
+export type ResetPasswordForm = { password: string };
+export type ResetPasswordResult = { username: string; temporary_password: string };
 
 const roleOptions = [
   ["space_manager", "Space Manager"],
@@ -159,8 +167,119 @@ export function CreateMakerspaceModal({
         <Field label="Location" error={errors.location}>
           <input className="desk-input w-full" value={form.location} onChange={(event) => onChange({ ...form, location: event.target.value })} />
         </Field>
+        <label className="flex items-start gap-3 rounded-md border border-line bg-surface p-3 text-sm">
+          <input
+            className="mt-1 h-4 w-4 accent-accent"
+            type="checkbox"
+            checked={form.superadmin_access_enabled}
+            onChange={(event) => onChange({ ...form, superadmin_access_enabled: event.target.checked })}
+          />
+          <span className="grid gap-1">
+            <span className="font-semibold text-ink">Superadmin can access this makerspace</span>
+            <span className="text-xs text-muted">
+              Uncheck for a collaborating makerspace that should be hidden from your reports/admin views. Only their admin can re-enable it.
+            </span>
+            {errors.superadmin_access_enabled ? <span className="text-xs font-normal text-danger">{errors.superadmin_access_enabled}</span> : null}
+          </span>
+        </label>
         <GeneralError error={error} errors={errors} />
       </form>
+    </Modal>
+  );
+}
+
+export function ResetPasswordModal({
+  open,
+  userLabel,
+  form,
+  pending,
+  error,
+  result,
+  onChange,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  userLabel: string;
+  form: ResetPasswordForm;
+  pending: boolean;
+  error: unknown;
+  result: ResetPasswordResult | null;
+  onChange: (form: ResetPasswordForm) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const errors = validationErrors(error);
+  const hasShortPassword = form.password.length > 0 && form.password.length < 8;
+  const disabled = pending || hasShortPassword;
+
+  useEffect(() => {
+    setCopied(false);
+  }, [open, result?.temporary_password]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Reset password for ${userLabel}`}
+      footer={
+        result ? (
+          <div className="desk-actions flex flex-wrap justify-end gap-2">
+            <button className="desk-button-primary" type="button" onClick={onClose}>Close</button>
+          </div>
+        ) : (
+          <ModalActions
+            pending={pending}
+            disabled={disabled}
+            submitLabel="Reset password"
+            onClose={onClose}
+            onSubmit={onSubmit}
+          />
+        )
+      }
+    >
+      {result ? (
+        <div className="grid gap-3 text-sm">
+          <p className="text-muted">Share this with the user securely. It won't be shown again.</p>
+          <div className="rounded-md border border-accent/40 bg-accent/10 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <code className="break-all font-mono text-base font-semibold text-ink">
+                {result.temporary_password}
+              </code>
+              <button
+                className="desk-button"
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard.writeText(result.temporary_password).then(() => setCopied(true));
+                }}
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <form className="grid gap-3 text-sm" onSubmit={(event) => { event.preventDefault(); if (!disabled) onSubmit(); }}>
+          <p className="text-muted">
+            A temporary password will be generated. The user must change it at next sign-in. You can run this again anytime.
+          </p>
+          <Field
+            label="Temporary password"
+            hint="Optional. Leave blank to auto-generate."
+            error={errors.password ?? (hasShortPassword ? "Use at least 8 characters, or leave blank to auto-generate." : undefined)}
+          >
+            <input
+              className="desk-input w-full"
+              minLength={8}
+              type="password"
+              value={form.password}
+              onChange={(event) => onChange({ ...form, password: event.target.value })}
+            />
+          </Field>
+          <GeneralError error={error} errors={errors} />
+        </form>
+      )}
     </Modal>
   );
 }

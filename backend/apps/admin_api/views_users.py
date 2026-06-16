@@ -1,4 +1,6 @@
 from django.contrib.auth.hashers import make_password
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils.crypto import get_random_string
@@ -14,6 +16,8 @@ from apps.accounts.models import User
 from apps.admin_api.permissions import IsActiveStaff, IsActiveSuperAdmin
 from apps.admin_api.serializers_users import (
     AuditLogSerializer,
+    ResetPasswordRequestSerializer,
+    ResetPasswordResponseSerializer,
     RestrictUserSerializer,
     StaffCreateSerializer,
     StaffMembershipSerializer,
@@ -37,6 +41,11 @@ class StaffListCreateView(generics.ListCreateAPIView):
             role=target_role
         )
         if scope is rbac.ALL:
+            queryset = rbac.hide_from_superadmin(
+                self.request.user,
+                queryset,
+                field="makerspace_id",
+            )
             return queryset.order_by("user__username")
         if target_role in (
             MakerspaceMembership.Role.PRINT_MANAGER,
@@ -141,6 +150,84 @@ class RestrictUserView(APIView):
         return Response(UserSerializer(user).data)
 
 
+class ResetUserPasswordView(APIView):
+    permission_classes = [IsActiveStaff]
+
+    @extend_schema(
+        tags=["Admin users"],
+        summary="Reset a staff user's password (temp + force change)",
+        request=ResetPasswordRequestSerializer,
+        responses={200: ResetPasswordResponseSerializer},
+    )
+    def post(self, request, pk, *args, **kwargs):
+        target = get_object_or_404(User, pk=pk)
+        actor = request.user
+        is_superadmin = actor.is_superuser or actor.role == User.Role.SUPERADMIN
+        # Never reset a superadmin via this endpoint.
+        if target.is_superuser or target.role == User.Role.SUPERADMIN:
+            raise PermissionDenied("Cannot reset a superadmin's password here.")
+        # EXISTENTIAL hidden-space Space-Manager block (applies to ALL actors incl. superadmin):
+        # if the target is a SPACE_MANAGER of ANY makerspace that disabled superadmin access,
+        # nobody may reset them in-app (they self-recover by email, or the space re-enables access).
+        if MakerspaceMembership.objects.filter(
+            user=target,
+            role=MakerspaceMembership.Role.SPACE_MANAGER,
+            makerspace__superadmin_access_enabled=False,
+        ).exists():
+            raise PermissionDenied(
+                "This user is a Space Manager of a makerspace that turned off superadmin access; "
+                "they must self-recover via the forgot-password email, or the makerspace must re-enable access."
+            )
+        if not is_superadmin:
+            memberships = MakerspaceMembership.objects.filter(user=target)
+            if not memberships.exists():
+                raise PermissionDenied("You can only reset staff in your makerspaces.")
+            scope = rbac.makerspaces_for_action(actor, rbac.Action.MANAGE_MAKERSPACE)
+            if scope is not rbac.ALL:
+                target_ms = set(memberships.values_list("makerspace_id", flat=True))
+                if not target_ms.issubset(scope):
+                    raise PermissionDenied(
+                        "This user also belongs to a makerspace outside your authority."
+                    )
+            # No peer Space-Manager takeover: a makerspace admin cannot reset another Space Manager.
+            if memberships.filter(role=MakerspaceMembership.Role.SPACE_MANAGER).exists():
+                raise PermissionDenied("Cannot reset another Space Manager's password.")
+        serializer = ResetPasswordRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        password = serializer.validated_data.get("password")
+        if password:
+            try:
+                validate_password(password, user=target)
+            except DjangoValidationError as exc:
+                raise ValidationError({"password": list(exc.messages)}) from exc
+        else:
+            # auto-generate a temp password that passes the active validators (retry a few times)
+            for _ in range(5):
+                candidate = get_random_string(12)
+                try:
+                    validate_password(candidate, user=target)
+                    password = candidate
+                    break
+                except DjangoValidationError:
+                    continue
+            if not password:
+                password = get_random_string(16)
+        target.set_password(password)
+        target.must_change_password = True
+        target.save(update_fields=["password", "must_change_password"])
+        audit.record(
+            actor,
+            "user.password_reset",
+            target=target,
+            meta={"by_superadmin": is_superadmin},
+        )
+        return Response(
+            ResetPasswordResponseSerializer(
+                {"username": target.username, "temporary_password": password}
+            ).data
+        )
+
+
 class RestoreUserAccessView(APIView):
     permission_classes = [IsActiveSuperAdmin]
 
@@ -170,6 +257,7 @@ class AuditLogListView(generics.ListAPIView):
     def get_queryset(self):
         queryset = AuditLog.objects.select_related("actor", "makerspace").order_by("-created_at")
         queryset = rbac.scope_by_action(self.request.user, rbac.Action.VIEW_AUDIT, queryset)
+        queryset = rbac.hide_from_superadmin(self.request.user, queryset, field="makerspace_id")
         makerspace_id = self.request.query_params.get("makerspace")
         action = self.request.query_params.get("action")
         target_type, target_id = (
