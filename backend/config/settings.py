@@ -244,6 +244,10 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "apps.hardware_requests.exceptions.workflow_exception_handler",
     "DEFAULT_THROTTLE_RATES": {
         "checkin_verify": env("THROTTLE_CHECKIN_VERIFY", default="30/min"),
+        "staff_checkin_verify": env(
+            "THROTTLE_STAFF_CHECKIN_VERIFY",
+            default="30/min",
+        ),
         "login": env("THROTTLE_LOGIN", default="10/min"),
         "password_reset_request": env(
             "THROTTLE_PASSWORD_RESET_REQUEST",

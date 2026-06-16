@@ -75,6 +75,7 @@ export const openApiPaths = [
   "/api/v1/admin/makerspace/{makerspace_id}/api-clients",
   "/api/v1/admin/makerspace/{makerspace_id}/api-settings",
   "/api/v1/admin/makerspace/{makerspace_id}/categories",
+  "/api/v1/admin/makerspace/{makerspace_id}/checkin/verify",
   "/api/v1/admin/makerspace/{makerspace_id}/containers",
   "/api/v1/admin/makerspace/{makerspace_id}/direct-loans",
   "/api/v1/admin/makerspace/{makerspace_id}/frontends",

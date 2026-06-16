@@ -7,6 +7,7 @@ from apps.hardware_requests.handover_views import (
 from apps.hardware_requests.direct_loan_views import (
     DirectLoanListCreateView,
     DirectLoanReturnView,
+    StaffCheckinVerifyView,
 )
 from apps.hardware_requests.public_views import (
     CheckinVerifyView,
@@ -45,4 +46,5 @@ __all__ = [
     "RequestSubmitView",
     "ReturnRequestView",
     "SetReturnDueView",
+    "StaffCheckinVerifyView",
 ]

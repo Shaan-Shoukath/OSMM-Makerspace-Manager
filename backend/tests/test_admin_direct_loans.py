@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.audit.models import AuditLog
-from apps.boxes.models import QrCode
+from apps.boxes.models import Box, QrCode
 from apps.hardware_requests.models import HardwareRequest, PublicToolLoan
 from apps.inventory.models import InventoryProduct
 from apps.makerspaces.models import Makerspace, MakerspaceMembership
@@ -62,12 +62,14 @@ def test_admin_direct_manual_handout_and_return_logs_product():
     makerspace.save(update_fields=["default_loan_days"])
     admin = make_admin(makerspace)
     product = make_product(makerspace)
+    container = Box.objects.create(makerspace=makerspace, label="Handout bin")
     client = authed(admin)
 
     issued = client.post(
         direct_url(makerspace),
         {
             "identifier": "member-direct",
+            "container_id": container.id,
             "items": [{"product_id": product.id, "quantity": 2}],
         },
         format="json",
@@ -75,6 +77,8 @@ def test_admin_direct_manual_handout_and_return_logs_product():
 
     assert issued.status_code == 201
     assert issued.data["source"] == PublicToolLoan.Source.ADMIN_DIRECT
+    assert issued.data["container_id"] == container.id
+    assert issued.data["container_label"] == "Handout bin"
     product.refresh_from_db()
     assert product.available_quantity == 1
     assert product.issued_quantity == 2
@@ -83,6 +87,7 @@ def test_admin_direct_manual_handout_and_return_logs_product():
     assert request.issued_by == admin
     loan = PublicToolLoan.objects.get()
     assert loan.qr_code_id is None
+    assert loan.container == container
     assert loan.due_at is not None
     assert abs((loan.due_at - loan.checked_out_at) - timedelta(days=10)) < timedelta(
         seconds=2
@@ -119,7 +124,7 @@ def test_admin_direct_manual_handout_and_return_logs_product():
 
 
 @override_settings(API_CLIENT_AUTH_REQUIRED=False)
-def test_admin_direct_handout_requires_opt_in_product():
+def test_admin_direct_handout_allows_non_self_checkout_product():
     makerspace = make_space("direct-disabled")
     admin = make_admin(makerspace)
     product = make_product(makerspace, public_self_checkout_enabled=False)
@@ -133,8 +138,8 @@ def test_admin_direct_handout_requires_opt_in_product():
         format="json",
     )
 
-    assert response.status_code == 400
-    assert PublicToolLoan.objects.count() == 0
+    assert response.status_code == 201
+    assert PublicToolLoan.objects.count() == 1
 
 
 def make_qr(makerspace, product):

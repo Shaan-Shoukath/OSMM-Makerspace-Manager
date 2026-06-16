@@ -10,6 +10,7 @@ type DirectLoan = {
   public_token: string;
   status: string;
   target_label: string;
+  container_label?: string | null;
   due_at: string | null;
   items: { product_name: string; quantity: number }[];
 };
@@ -23,6 +24,9 @@ type ProductOption = {
   public_self_checkout_enabled: boolean;
   is_archived: boolean;
 };
+type ContainerOption = { id: number; label: string };
+type ContainerResponse = ContainerOption[] | { results: ContainerOption[] };
+type VerifyResponse = { username: string };
 type LineDraft = { key: number; productId: string; quantity: string };
 type ScannedPayload = { payload: string; label: string };
 type QrResolveResponse = {
@@ -40,30 +44,55 @@ export function DirectLoans({ makerspace }: { makerspace: Makerspace }) {
   const [scanned, setScanned] = useState<ScannedPayload[]>([]);
   const [showScanner, setShowScanner] = useState(false);
   const [qrPayloads, setQrPayloads] = useState("");
+  const [containerId, setContainerId] = useState("");
+  // Track WHICH identifier was verified, not just a boolean: editing the field
+  // mid-flight must never approve a stale, mismatched identity.
+  const [verifiedIdentifier, setVerifiedIdentifier] = useState("");
+  const [verifiedUsername, setVerifiedUsername] = useState("");
   const products = useStaffGet<{ results: ProductOption[] }>(
     ["inventory-all", makerspace.id],
     `/admin/makerspace/${makerspace.id}/inventory?page_size=1000`,
   );
-  // Manual (non-QR) direct handout only accepts public, non-archived, self-checkout
-  // quantity products (the backend _manual_product rule). Asset/individual items must be
+  const containers = useStaffGet<ContainerResponse>(
+    ["containers", makerspace.id],
+    `/admin/makerspace/${makerspace.id}/containers`,
+  );
+  const containerOptions = Array.isArray(containers.data)
+    ? containers.data
+    : containers.data?.results ?? [];
+  // Manual (non-QR) direct handout accepts non-archived quantity products. Asset/individual items must be
   // QR-scanned instead, so don't offer rejectable options in the manual dropdown.
   const eligibleProducts = (products.data?.results ?? []).filter(
-    (product) =>
-      product.is_public &&
-      !product.is_archived &&
-      product.public_self_checkout_enabled &&
-      product.tracking_mode !== "individual",
+    (product) => !product.is_archived && product.tracking_mode !== "individual",
   );
   const loans = useStaffGet<{ results: DirectLoan[] }>(
     ["direct-loans", makerspace.id],
     `/admin/makerspace/${makerspace.id}/direct-loans`,
   );
+  const verify = useMutation({
+    mutationFn: (submitted: string) =>
+      staffRequest<VerifyResponse>(`/admin/makerspace/${makerspace.id}/checkin/verify`, {
+        method: "POST",
+        body: JSON.stringify({ identifier: submitted }),
+      }),
+    onMutate: () => {
+      setVerifiedIdentifier("");
+      setVerifiedUsername("");
+    },
+    onSuccess: (result, submitted) => {
+      // Bind the success to the exact identifier that was verified.
+      setVerifiedIdentifier(submitted);
+      setVerifiedUsername(result.username);
+    },
+  });
+  const isVerified = verifiedIdentifier !== "" && verifiedIdentifier === identifier;
   const issue = useMutation({
     mutationFn: () =>
       staffRequest(`/admin/makerspace/${makerspace.id}/direct-loans`, {
         method: "POST",
         body: JSON.stringify({
           identifier,
+          container_id: containerId ? Number(containerId) : null,
           qr_payloads: Array.from(new Set([
             ...scanned.map((item) => item.payload),
             ...qrPayloads.split("\n").map((value) => value.trim()).filter(Boolean),
@@ -79,6 +108,7 @@ export function DirectLoans({ makerspace }: { makerspace: Makerspace }) {
       setNextLineKey(2);
       setScanned([]);
       setQrPayloads("");
+      setContainerId("");
     },
   });
   const returnLoan = useMutation({
@@ -101,6 +131,12 @@ export function DirectLoans({ makerspace }: { makerspace: Makerspace }) {
   };
   const removeScanned = (payload: string) => {
     setScanned((items) => items.filter((item) => item.payload !== payload));
+  };
+  const updateIdentifier = (value: string) => {
+    setIdentifier(value);
+    setVerifiedIdentifier("");
+    setVerifiedUsername("");
+    verify.reset();
   };
   const handleScan = async (payload: string) => {
     const cleanPayload = payload.trim();
@@ -125,7 +161,27 @@ export function DirectLoans({ makerspace }: { makerspace: Makerspace }) {
   return (
     <div className="grid gap-4">
       <Panel title="Direct handout">
-        <input className="desk-input" placeholder="Check-In username, email, phone, or ID" value={identifier} onChange={(e) => setIdentifier(e.target.value)} />
+        <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+          <input className="desk-input" placeholder="Check-In username, email, phone, or ID" value={identifier} onChange={(e) => updateIdentifier(e.target.value)} />
+          <button className="desk-button" type="button" disabled={!identifier.trim() || verify.isPending} onClick={() => verify.mutate(identifier)}>
+            Verify check-in
+          </button>
+        </div>
+        {isVerified && verifiedUsername ? <p className="mt-2 text-sm text-success">Verified as {verifiedUsername}</p> : null}
+        {verify.error ? <p className="mt-2 text-sm text-danger">{verify.error.message}</p> : null}
+        <label className="mt-4 block text-sm font-medium text-ink" htmlFor="direct-loan-container">Container (optional)</label>
+        <select
+          id="direct-loan-container"
+          className="desk-input mt-1 w-full"
+          value={containerId}
+          disabled={containers.isLoading}
+          onChange={(e) => setContainerId(e.target.value)}
+        >
+          <option value="">No container</option>
+          {containerOptions.map((container) => (
+            <option key={container.id} value={container.id}>{container.label}</option>
+          ))}
+        </select>
         <div className="mt-4">
           <div className="mb-2 flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-ink">Items</h3>
@@ -170,11 +226,12 @@ export function DirectLoans({ makerspace }: { makerspace: Makerspace }) {
           value={qrPayloads}
           onChange={(e) => setQrPayloads(e.target.value)}
         />
-        <button className="desk-button-primary mt-3" onClick={() => issue.mutate()}>
+        <button className="desk-button-primary mt-3" disabled={!isVerified || issue.isPending} onClick={() => issue.mutate()}>
           Issue direct handout
         </button>
         {issue.error ? <p className="mt-3 text-sm text-danger">{issue.error.message}</p> : null}
         {products.error ? <p className="mt-3 text-sm text-danger">{products.error.message}</p> : null}
+        {containers.error ? <p className="mt-3 text-sm text-danger">{containers.error.message}</p> : null}
         {showScanner ? <QrScanner onScan={handleScan} onClose={() => setShowScanner(false)} /> : null}
       </Panel>
       <Panel title="Direct handout loans">
@@ -184,7 +241,11 @@ export function DirectLoans({ makerspace }: { makerspace: Makerspace }) {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="font-semibold text-ink">{loan.target_label}</h3>
-                  <p className="text-xs text-muted">{loan.status}{loan.due_at ? ` · due ${new Date(loan.due_at).toLocaleString()}` : ""}</p>
+                  <p className="text-xs text-muted">
+                    {loan.status}
+                    {loan.container_label ? ` - given in: ${loan.container_label}` : ""}
+                    {loan.due_at ? ` - due ${new Date(loan.due_at).toLocaleString()}` : ""}
+                  </p>
                 </div>
                 {loan.status === "checked_out" ? (
                   <button className="desk-button" onClick={() => returnLoan.mutate(loan.id)}>

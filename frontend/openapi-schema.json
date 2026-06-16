@@ -2208,6 +2208,102 @@
                 }
             }
         },
+        "/api/v1/admin/makerspace/{makerspace_id}/checkin/verify": {
+            "post": {
+                "operationId": "api_v1_admin_makerspace_checkin_verify_create",
+                "summary": "Staff verify Check-In identity",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "makerspace_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "Admin requests"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StaffCheckinVerifyRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StaffCheckinVerifyRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StaffCheckinVerifyRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StaffCheckinVerifyResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HardwareRequestError"
+                                }
+                            }
+                        },
+                        "description": "Invalid request."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HardwareRequestError"
+                                }
+                            }
+                        },
+                        "description": "Permission denied."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HardwareRequestError"
+                                }
+                            }
+                        },
+                        "description": "Not found."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HardwareRequestError"
+                                }
+                            }
+                        },
+                        "description": "Workflow conflict."
+                    }
+                }
+            }
+        },
         "/api/v1/admin/makerspace/{makerspace_id}/containers": {
             "get": {
                 "operationId": "api_v1_admin_makerspace_containers_list",
@@ -10453,6 +10549,14 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "container_id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "container_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "due_at": {
                         "type": "string",
                         "format": "date-time",
@@ -10465,6 +10569,8 @@
                     }
                 },
                 "required": [
+                    "container_id",
+                    "container_label",
                     "due_at",
                     "id",
                     "items",
@@ -10480,6 +10586,10 @@
                 "properties": {
                     "identifier": {
                         "type": "string"
+                    },
+                    "container_id": {
+                        "type": "integer",
+                        "nullable": true
                     },
                     "qr_payloads": {
                         "type": "array",
@@ -14740,6 +14850,29 @@
                 ],
                 "type": "string",
                 "description": "* `request` - request\n* `self_checkout` - self_checkout\n* `direct_handout` - direct_handout"
+            },
+            "StaffCheckinVerifyRequest": {
+                "type": "object",
+                "properties": {
+                    "identifier": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "identifier"
+                ]
+            },
+            "StaffCheckinVerifyResponse": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "username"
+                ]
             },
             "StaffMembership": {
                 "type": "object",

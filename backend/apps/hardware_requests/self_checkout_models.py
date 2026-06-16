@@ -23,6 +23,13 @@ class PublicToolLoan(models.Model):
         on_delete=models.PROTECT,
         related_name="public_tool_loans",
     )
+    container = models.ForeignKey(
+        "boxes.Box",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
     request = models.OneToOneField(
         "hardware_requests.HardwareRequest",
         on_delete=models.PROTECT,
@@ -63,6 +70,13 @@ class PublicToolLoan(models.Model):
                 fields=["qr_code"],
                 condition=models.Q(status="checked_out"),
                 name="uniq_active_public_tool_loan_per_qr",
+            ),
+            # A physical handover container can only be out on one active loan at a
+            # time (NULL containers are excluded by Postgres partial-unique semantics).
+            models.UniqueConstraint(
+                fields=["container"],
+                condition=models.Q(status="checked_out"),
+                name="uniq_active_loan_per_container",
             ),
         ]
         indexes = [

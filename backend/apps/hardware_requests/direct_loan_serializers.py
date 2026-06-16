@@ -10,6 +10,7 @@ class DirectLoanItemSerializer(serializers.Serializer):
 
 class DirectLoanIssueSerializer(serializers.Serializer):
     identifier = serializers.CharField()
+    container_id = serializers.IntegerField(required=False, allow_null=True)
     qr_payloads = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -29,5 +30,18 @@ class DirectLoanReturnSerializer(serializers.Serializer):
 
 class DirectLoanSerializer(PublicToolLoanSerializer):
     id = serializers.IntegerField(read_only=True)
+    container_id = serializers.IntegerField(read_only=True)
+    container_label = serializers.SerializerMethodField()
     due_at = serializers.DateTimeField(read_only=True, allow_null=True)
     source = serializers.CharField(read_only=True)
+
+    def get_container_label(self, obj):
+        return obj.container.label if obj.container else None
+
+
+class StaffCheckinVerifyRequestSerializer(serializers.Serializer):
+    identifier = serializers.CharField()
+
+
+class StaffCheckinVerifyResponseSerializer(serializers.Serializer):
+    username = serializers.CharField(read_only=True)

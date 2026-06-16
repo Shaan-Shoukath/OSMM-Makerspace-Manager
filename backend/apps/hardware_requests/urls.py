@@ -61,6 +61,11 @@ urlpatterns = [
         name="direct-loans",
     ),
     path(
+        "admin/makerspace/<int:makerspace_id>/checkin/verify",
+        views.StaffCheckinVerifyView.as_view(),
+        name="staff-checkin-verify",
+    ),
+    path(
         "admin/direct-loans/<int:pk>/return",
         views.DirectLoanReturnView.as_view(),
         name="direct-loan-return",

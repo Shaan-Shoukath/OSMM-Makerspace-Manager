@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.audit import services as audit
-from apps.boxes.models import QrScanEvent
+from apps.boxes.models import Box, QrScanEvent
 from apps.checkin import client as checkin
 from apps.hardware_requests.models import HardwareRequest, PublicToolLoan
 from apps.hardware_requests.self_checkout_workflow import (
@@ -21,10 +21,29 @@ from apps.hardware_requests.workflow_errors import InvalidTransition, RequestVal
 from apps.inventory.models import InventoryAsset, InventoryProduct, TrackingMode
 
 
-def issue_direct_loan(makerspace, actor, identifier, *, qr_payloads, items):
+def issue_direct_loan(
+    makerspace, actor, identifier, *, qr_payloads, items, container_id=None
+):
     result = checkin.verify(makerspace, identifier)
     due_at = timezone.now() + timedelta(days=(makerspace.default_loan_days or 7))
     with transaction.atomic():
+        container = None
+        if container_id is not None:
+            container = Box.objects.filter(pk=container_id, makerspace=makerspace).first()
+            if container is None:
+                raise RequestValidationError("Container is not in this makerspace.")
+            # A physical container can only be out on one active handout at a time.
+            # Explicit check gives a clean 409; the partial-unique constraint is the
+            # race backstop (mirrors the per-QR active-loan guard).
+            if PublicToolLoan.objects.filter(
+                makerspace=makerspace,
+                container=container,
+                status=PublicToolLoan.Status.CHECKED_OUT,
+            ).exists():
+                raise InvalidTransition(
+                    "That container is already out on another direct handout."
+                )
+
         requester = _requester(result.external_id)
         product_quantities = Counter()
         asset_ids = []
@@ -65,6 +84,7 @@ def issue_direct_loan(makerspace, actor, identifier, *, qr_payloads, items):
         loan = PublicToolLoan.objects.create(
             makerspace=makerspace,
             qr_code=qrs[0] if qrs else None,
+            container=container,
             qr_ids=[qr.id for qr in qrs],
             request=request,
             requester=requester,
@@ -89,7 +109,11 @@ def issue_direct_loan(makerspace, actor, identifier, *, qr_payloads, items):
 
 def return_direct_loan(loan, actor):
     with transaction.atomic():
-        locked = PublicToolLoan.objects.select_for_update().select_related("request").get(pk=loan.pk)
+        locked = (
+            PublicToolLoan.objects.select_for_update()
+            .select_related("request")
+            .get(pk=loan.pk)
+        )
         if locked.status != PublicToolLoan.Status.CHECKED_OUT:
             raise InvalidTransition("Direct loan is not currently checked out.")
         _return_request_items(locked.request)
@@ -104,8 +128,12 @@ def return_direct_loan(loan, actor):
         locked.request.status = HardwareRequest.Status.RETURNED
         locked.request.closed_by = actor
         locked.request.closed_at = locked.returned_at
-        locked.request.save(update_fields=["status", "closed_by", "closed_at", "updated_at"])
-        _record_item_logs(actor, "admin_direct.returned", locked.makerspace, locked.request, locked)
+        locked.request.save(
+            update_fields=["status", "closed_by", "closed_at", "updated_at"]
+        )
+        _record_item_logs(
+            actor, "admin_direct.returned", locked.makerspace, locked.request, locked
+        )
         return locked
 
 
@@ -113,12 +141,12 @@ def _manual_product(makerspace, product_id):
     product = InventoryProduct.objects.select_for_update().filter(
         pk=product_id,
         makerspace=makerspace,
-        is_public=True,
         is_archived=False,
-        public_self_checkout_enabled=True,
     ).first()
     if product is None:
-        raise RequestValidationError("Manual product is not enabled for direct handout.")
+        raise RequestValidationError(
+            "Manual product is not in this makerspace or is archived."
+        )
     if product.tracking_mode == TrackingMode.INDIVIDUAL:
         raise RequestValidationError(
             "Individual-tracked products require scanned asset QR codes for handout."

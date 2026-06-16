@@ -3,20 +3,24 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import generics, status
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.accounts import rbac
 from apps.accounts.models import User
+from apps.checkin import client as checkin
 from apps.hardware_requests import direct_loan_workflow
 from apps.hardware_requests.direct_loan_serializers import (
     DirectLoanIssueSerializer,
     DirectLoanReturnSerializer,
     DirectLoanSerializer,
+    StaffCheckinVerifyRequestSerializer,
+    StaffCheckinVerifyResponseSerializer,
 )
 from apps.hardware_requests.models import PublicToolLoan
 from apps.hardware_requests.view_helpers import ACTION_ERROR_RESPONSES
-from apps.makerspaces.models import Makerspace
 from apps.makerspaces.guards import require_module
+from apps.makerspaces.models import Makerspace
 
 
 class DirectLoanListCreateView(generics.ListAPIView):
@@ -26,10 +30,9 @@ class DirectLoanListCreateView(generics.ListAPIView):
         makerspace_id = self.kwargs["makerspace_id"]
         require_module(makerspace_id, "self_checkout")
         _require(self.request.user, rbac.Action.ISSUE_DIRECT_LOAN, makerspace_id)
-        queryset = PublicToolLoan.objects.select_related("request", "requester").filter(
-            makerspace_id=makerspace_id,
-            source=PublicToolLoan.Source.ADMIN_DIRECT,
-        )
+        queryset = PublicToolLoan.objects.select_related(
+            "container", "request", "requester"
+        ).filter(makerspace_id=makerspace_id, source=PublicToolLoan.Source.ADMIN_DIRECT)
         status_filter = self.request.query_params.get("status")
         if status_filter:
             queryset = queryset.filter(status=status_filter)
@@ -61,6 +64,7 @@ class DirectLoanListCreateView(generics.ListAPIView):
             serializer.validated_data["identifier"],
             qr_payloads=serializer.validated_data.get("qr_payloads") or [],
             items=serializer.validated_data.get("items") or [],
+            container_id=serializer.validated_data.get("container_id"),
         )
         return Response(DirectLoanSerializer(loan).data, status=status.HTTP_201_CREATED)
 
@@ -82,6 +86,29 @@ class DirectLoanReturnView(APIView):
         _require(request.user, rbac.Action.RETURN_REQUEST, loan.makerspace_id)
         returned = direct_loan_workflow.return_direct_loan(loan, request.user)
         return Response(DirectLoanSerializer(returned).data)
+
+
+class StaffCheckinVerifyView(APIView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "staff_checkin_verify"
+
+    @extend_schema(
+        tags=["Admin requests"],
+        summary="Staff verify Check-In identity",
+        request=StaffCheckinVerifyRequestSerializer,
+        responses={
+            200: StaffCheckinVerifyResponseSerializer,
+            **ACTION_ERROR_RESPONSES,
+        },
+    )
+    def post(self, request, makerspace_id, *args, **kwargs):
+        makerspace = get_object_or_404(Makerspace, pk=makerspace_id)
+        require_module(makerspace, "self_checkout")
+        _require(request.user, rbac.Action.ISSUE_DIRECT_LOAN, makerspace.id)
+        serializer = StaffCheckinVerifyRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = checkin.verify(makerspace, serializer.validated_data["identifier"])
+        return Response({"username": result.username})
 
 
 def _require(user, action, makerspace_id):
