@@ -128,6 +128,14 @@ class SuperuserOnlyModelAdmin:
         if not lookup:
             return queryset
 
+        from apps.makerspaces.models import Makerspace
+
+        if self.model is Makerspace:
+            # Governance visibility: a superadmin can see that a hidden
+            # makerspace exists in /control/, while object-level permission
+            # checks below still block opening/changing/deleting it.
+            return queryset
+
         from apps.accounts import rbac
 
         hidden = rbac.superadmin_hidden_makerspace_ids()

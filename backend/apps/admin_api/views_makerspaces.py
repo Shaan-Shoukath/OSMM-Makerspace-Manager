@@ -17,6 +17,7 @@ from apps.admin_api.serializers_makerspaces import (
 from apps.audit import services as audit
 from apps.makerspaces.guards import require_module
 from apps.makerspaces.models import Makerspace, TenantFrontend
+from apps.makerspaces.origin_scope import origin_scoped_makerspace_id
 
 
 @extend_schema(tags=["Admin makerspaces"], summary="List or create makerspaces")
@@ -34,12 +35,15 @@ class MakerspaceListCreateView(generics.ListCreateAPIView):
         # scope here doesn't grant anyone new write access.
         queryset = Makerspace.objects.filter(archived_at__isnull=True)
         actor = self.request.user
+        origin_scope = origin_scoped_makerspace_id(self.request)
         if actor.is_superuser or actor.role == User.Role.SUPERADMIN:
             # Governance list: the superadmin still sees hidden, non-archived
             # makerspaces (rendered as slim disabled rows in list() below) so a
             # hard-hidden space stays discoverable for break-glass. Archived
             # spaces are omitted from the React console and remain visible only
             # in /control/.
+            if origin_scope is not None:
+                queryset = queryset.filter(id=origin_scope)
             return queryset.order_by("name")
         scope = rbac.makerspaces_for_actions(
             actor,
@@ -48,7 +52,10 @@ class MakerspaceListCreateView(generics.ListCreateAPIView):
         )
         if not scope:
             return queryset.none()
-        return queryset.filter(id__in=scope).order_by("name")
+        queryset = queryset.filter(id__in=scope)
+        if origin_scope is not None:
+            queryset = queryset.filter(id=origin_scope)
+        return queryset.order_by("name")
 
     def list(self, request, *args, **kwargs):
         # Serialize PER ROW: the full makerspace config (public_api_key, CORS

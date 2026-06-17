@@ -2,6 +2,10 @@ from rest_framework.permissions import BasePermission
 
 from apps.accounts import rbac
 from apps.accounts.models import User
+from apps.makerspaces.origin_scope import (
+    object_in_staff_origin_scope,
+    staff_origin_scope_allows,
+)
 
 
 def active_user(user):
@@ -19,7 +23,13 @@ def active_user(user):
 
 class IsActiveStaff(BasePermission):
     def has_permission(self, request, view):
-        return active_user(getattr(request, "user", None))
+        return active_user(getattr(request, "user", None)) and staff_origin_scope_allows(
+            request,
+            view,
+        )
+
+    def has_object_permission(self, request, view, obj):
+        return object_in_staff_origin_scope(request, obj)
 
 
 class IsActiveSuperAdmin(BasePermission):
@@ -27,7 +37,10 @@ class IsActiveSuperAdmin(BasePermission):
         user = getattr(request, "user", None)
         return active_user(user) and (
             user.is_superuser or user.role == User.Role.SUPERADMIN
-        )
+        ) and staff_origin_scope_allows(request, view)
+
+    def has_object_permission(self, request, view, obj):
+        return object_in_staff_origin_scope(request, obj)
 
 
 def require_action(user, action, makerspace_id):
@@ -35,4 +48,3 @@ def require_action(user, action, makerspace_id):
         from rest_framework.exceptions import PermissionDenied
 
         raise PermissionDenied()
-

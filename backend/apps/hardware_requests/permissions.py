@@ -2,6 +2,7 @@ from rest_framework.permissions import BasePermission
 
 from apps.accounts import rbac
 from apps.accounts.models import User
+from apps.makerspaces.origin_scope import staff_origin_scope_allows
 
 
 def _active_authenticated(user):
@@ -15,7 +16,7 @@ def _active_authenticated(user):
 class CanReviewRequest(BasePermission):
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
-        if not _active_authenticated(user):
+        if not _active_authenticated(user) or not staff_origin_scope_allows(request, view):
             return False
 
         return bool(
@@ -32,7 +33,7 @@ class CanViewHandoverQueue(BasePermission):
 
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
-        if not _active_authenticated(user):
+        if not _active_authenticated(user) or not staff_origin_scope_allows(request, view):
             return False
         return bool(rbac.makerspaces_for_action(user, rbac.Action.ISSUE_REQUEST))
 
@@ -40,7 +41,7 @@ class CanViewHandoverQueue(BasePermission):
 class CanAssignBox(BasePermission):
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
-        if not _active_authenticated(user):
+        if not _active_authenticated(user) or not staff_origin_scope_allows(request, view):
             return False
         return bool(rbac.makerspaces_for_action(user, rbac.Action.ASSIGN_BOX))
 
@@ -48,7 +49,7 @@ class CanAssignBox(BasePermission):
 class CanIssueRequest(BasePermission):
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
-        if not _active_authenticated(user):
+        if not _active_authenticated(user) or not staff_origin_scope_allows(request, view):
             return False
         return bool(rbac.makerspaces_for_action(user, rbac.Action.ISSUE_REQUEST))
 
@@ -56,6 +57,6 @@ class CanIssueRequest(BasePermission):
 class CanReturnRequest(BasePermission):
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
-        if not _active_authenticated(user):
+        if not _active_authenticated(user) or not staff_origin_scope_allows(request, view):
             return False
         return bool(rbac.makerspaces_for_action(user, rbac.Action.RETURN_REQUEST))

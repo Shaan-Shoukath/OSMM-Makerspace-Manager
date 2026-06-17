@@ -3,8 +3,9 @@ from django.test import override_settings
 from rest_framework.test import APIClient
 
 from apps.admin_api.serializers_makerspaces import TenantFrontendSerializer
-from apps.makerspaces.models import TenantFrontend
-from tests.return_helpers import make_product, make_space
+from apps.accounts.models import User
+from apps.makerspaces.models import MakerspaceMembership, TenantFrontend
+from tests.return_helpers import make_member, make_product, make_space, make_user
 
 pytestmark = pytest.mark.django_db
 
@@ -135,3 +136,111 @@ def test_tenant_frontend_serializer_rejects_multiple_origins():
 
     assert not serializer.is_valid()
     assert "allowed_origins" in serializer.errors
+
+
+def test_space_manager_can_register_frontend_for_superadmin_hidden_makerspace():
+    makerspace = make_space("platform-hidden-self-serve")
+    makerspace.superadmin_access_enabled = False
+    makerspace.save(update_fields=["superadmin_access_enabled"])
+    manager = make_member("hidden-frontend-manager", makerspace)
+    client = APIClient()
+    client.force_authenticate(manager)
+
+    response = client.post(
+        f"/api/v1/admin/makerspace/{makerspace.id}/frontends",
+        {
+            "frontend_type": TenantFrontend.FrontendType.STAFF_ADMIN,
+            "hostname": "hidden.example",
+            "allowed_origins": ["https://hidden.example"],
+            "enabled_modules": [],
+            "is_primary": True,
+            "is_active": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["token"]
+
+
+def test_superadmin_cannot_register_frontend_for_superadmin_hidden_makerspace():
+    makerspace = make_space("platform-hidden-superadmin-blocked")
+    makerspace.superadmin_access_enabled = False
+    makerspace.save(update_fields=["superadmin_access_enabled"])
+    superadmin = make_user(
+        "hidden-frontend-superadmin",
+        role=User.Role.SUPERADMIN,
+        access_status=User.AccessStatus.ACTIVE,
+        is_staff=True,
+        is_superuser=True,
+    )
+    client = APIClient()
+    client.force_authenticate(superadmin)
+
+    response = client.post(
+        f"/api/v1/admin/makerspace/{makerspace.id}/frontends",
+        {
+            "frontend_type": TenantFrontend.FrontendType.STAFF_ADMIN,
+            "hostname": "hidden-superadmin.example",
+            "allowed_origins": ["https://hidden-superadmin.example"],
+            "enabled_modules": [],
+            "is_primary": True,
+            "is_active": True,
+        },
+        format="json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_staff_origin_scope_filters_makerspace_list_and_blocks_cross_tenant_targets():
+    origin = "https://space-a.example"
+    space_a = make_space("platform-origin-scope-a")
+    space_b = make_space("platform-origin-scope-b")
+    product_a = make_product(space_a, name="Scope A")
+    product_b = make_product(space_b, name="Scope B")
+    staff = make_user(
+        "origin-scope-staff",
+        role=User.Role.SPACE_MANAGER,
+        access_status=User.AccessStatus.ACTIVE,
+    )
+    MakerspaceMembership.objects.create(
+        user=staff,
+        makerspace=space_a,
+        role=MakerspaceMembership.Role.SPACE_MANAGER,
+    )
+    MakerspaceMembership.objects.create(
+        user=staff,
+        makerspace=space_b,
+        role=MakerspaceMembership.Role.SPACE_MANAGER,
+    )
+    TenantFrontend.objects.create(
+        makerspace=space_a,
+        frontend_type=TenantFrontend.FrontendType.STAFF_ADMIN,
+        allowed_origins=[origin],
+        is_active=True,
+    )
+    client = APIClient()
+    client.force_authenticate(staff)
+
+    listed = client.get("/api/v1/admin/makerspaces", HTTP_ORIGIN=origin)
+    own_list = client.get(
+        f"/api/v1/admin/makerspace/{space_a.id}/inventory",
+        HTTP_ORIGIN=origin,
+    )
+    cross_list = client.get(
+        f"/api/v1/admin/makerspace/{space_b.id}/inventory",
+        HTTP_ORIGIN=origin,
+    )
+    own_detail = client.get(f"/api/v1/admin/inventory/{product_a.id}", HTTP_ORIGIN=origin)
+    cross_detail = client.get(
+        f"/api/v1/admin/inventory/{product_b.id}",
+        HTTP_ORIGIN=origin,
+    )
+
+    assert listed.status_code == 200
+    assert [row["id"] for row in listed.data] == [space_a.id]
+    assert own_list.status_code == 200
+    assert cross_list.status_code == 403
+    assert own_detail.status_code == 200
+    assert cross_detail.status_code == 403

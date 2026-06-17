@@ -2,6 +2,10 @@ from rest_framework.permissions import BasePermission
 
 from apps.accounts import rbac
 from apps.accounts.models import User
+from apps.makerspaces.origin_scope import (
+    object_in_staff_origin_scope,
+    staff_origin_scope_allows,
+)
 
 
 def _active_authenticated(user):
@@ -20,7 +24,7 @@ class IsActiveRequester(BasePermission):
 class CanManagePrinting(BasePermission):
     def has_permission(self, request, view):
         user = getattr(request, "user", None)
-        if not _active_authenticated(user):
+        if not _active_authenticated(user) or not staff_origin_scope_allows(request, view):
             return False
 
         makerspace_id = request.query_params.get("makerspace")
@@ -37,6 +41,8 @@ class CanManagePrinting(BasePermission):
         return rbac.can(user, rbac.Action.MANAGE_PRINTING, makerspace_id)
 
     def has_object_permission(self, request, view, obj):
+        if not object_in_staff_origin_scope(request, obj):
+            return False
         makerspace_id = getattr(obj, "makerspace_id", None)
         if makerspace_id is None and hasattr(obj, "bucket"):
             makerspace_id = obj.bucket.makerspace_id

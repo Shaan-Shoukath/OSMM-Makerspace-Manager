@@ -5,7 +5,7 @@ from django.test import RequestFactory
 
 from apps.accounts.models import User
 from apps.inventory.models import InventoryProduct
-from apps.makerspaces.models import Makerspace
+from apps.makerspaces.models import Makerspace, TenantFrontend
 from config.admin_access import GLOBAL_ADMIN_MODELS
 
 pytestmark = pytest.mark.django_db
@@ -119,3 +119,50 @@ def test_inventory_product_admin_hides_disabled_makerspace_rows():
 
     assert hidden_product not in queryset
     assert visible_product in queryset
+
+
+def test_makerspace_admin_lists_disabled_makerspace_for_governance_visibility():
+    hidden_space = Makerspace.objects.create(
+        name="Hidden",
+        slug="hidden-admin-visible",
+        superadmin_access_enabled=False,
+    )
+    visible_space = Makerspace.objects.create(
+        name="Visible",
+        slug="visible-admin-visible",
+    )
+    superadmin = get_user_model().objects.create_user(
+        username="scope-visible-superadmin",
+        email="scope-visible-superadmin@example.com",
+        password="test-pass",
+        role=User.Role.SUPERADMIN,
+        access_status=User.AccessStatus.ACTIVE,
+        is_staff=True,
+        is_superuser=True,
+    )
+    request = RequestFactory().get("/control/makerspaces/makerspace/")
+    request.user = superadmin
+
+    queryset = admin.site._registry[Makerspace].get_queryset(request)
+
+    assert hidden_space in queryset
+    assert visible_space in queryset
+
+
+def test_makerspace_admin_lists_superadmin_status_and_frontend_mode():
+    makerspace = Makerspace.objects.create(
+        name="Mode Visible",
+        slug="mode-visible",
+        superadmin_access_enabled=False,
+    )
+    TenantFrontend.objects.create(
+        makerspace=makerspace,
+        frontend_type=TenantFrontend.FrontendType.STAFF_ADMIN,
+        hostname="mode-visible.example",
+        is_active=True,
+    )
+    model_admin = admin.site._registry[Makerspace]
+
+    assert "superadmin_access_enabled" in model_admin.list_display
+    assert "frontend_mode" in model_admin.list_display
+    assert model_admin.frontend_mode(makerspace) == "single-tenant"

@@ -43,10 +43,12 @@ class MakerspaceAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
         "slug",
         "location",
         "public_inventory_enabled",
+        "superadmin_access_enabled",
+        "frontend_mode",
         "archived",
         "updated_at",
     )
-    list_filter = ("public_inventory_enabled", ArchivedFilter)
+    list_filter = ("public_inventory_enabled", "superadmin_access_enabled", ArchivedFilter)
     prepopulated_fields = {"slug": ("name",)}
     search_fields = ("name", "public_code", "slug", "location")
     fieldsets = (
@@ -73,6 +75,13 @@ class MakerspaceAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
     def archived(self, obj):
         return obj.archived_at is not None
 
+    @admin.display(description="Frontend mode")
+    def frontend_mode(self, obj):
+        has_staff_site = obj.frontends.filter(
+            frontend_type=TenantFrontend.FrontendType.STAFF_ADMIN,
+            is_active=True,
+        ).exists()
+        return "single-tenant" if has_staff_site else "central"
     @admin.action(description="Archive selected makerspaces")
     def archive_makerspaces(self, request, queryset):
         from apps.makerspaces import lifecycle
