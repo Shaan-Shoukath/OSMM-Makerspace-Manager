@@ -8,6 +8,7 @@ const ACCESS_TOKEN_KEY = "makerspace.access";
 const REFRESH_CSRF_HEADER = "X-Refresh-CSRF";
 let runtimePublishableKey = import.meta.env.VITE_PUBLIC_API_KEY ?? "";
 let accessToken = "";
+const tenantPublishableKeys = new Map<string, string>();
 
 export type TenantBootstrap = {
   makerspace: {
@@ -57,15 +58,23 @@ function messageForStatus(status: number): string {
   return "Unable to load inventory";
 }
 
-async function publicHeaders(): Promise<HeadersInit> {
+async function publicHeaders(publishableKey?: string): Promise<HeadersInit> {
   if (PUBLIC_CLIENT_ID) {
     return { "X-Client-Id": PUBLIC_CLIENT_ID };
   }
-  return runtimePublishableKey ? { "X-Publishable-Key": runtimePublishableKey } : {};
+  const key = publishableKey || runtimePublishableKey;
+  return key ? { "X-Publishable-Key": key } : {};
 }
 
 export function setRuntimePublishableKey(key: string) {
   runtimePublishableKey = key;
+}
+
+export function cacheTenantPublishableKey(slug: string, key: string) {
+  const normalized = slug.trim();
+  if (normalized && key) {
+    tenantPublishableKeys.set(normalized, key);
+  }
 }
 
 export function getAccessToken() {
@@ -99,12 +108,13 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function publicV1Request<T>(
   path: string,
   options: RequestInit = {},
+  publishableKey?: string,
 ): Promise<T> {
   const response = await fetch(`${API_V1_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(await publicHeaders()),
+      ...(await publicHeaders(publishableKey)),
       ...(options.headers ?? {}),
     },
   });
@@ -125,7 +135,28 @@ export async function bootstrapTenant(params: { tenant?: string; slug?: string }
   const search = new URLSearchParams();
   if (params.tenant) search.set("tenant", params.tenant);
   if (params.slug) search.set("slug", params.slug);
-  return publicV1Request<TenantBootstrap>(`/bootstrap?${search.toString()}`);
+  const bootstrap = await publicV1Request<TenantBootstrap>(
+    `/bootstrap?${search.toString()}`,
+  );
+  cacheTenantPublishableKey(
+    bootstrap.makerspace.slug,
+    bootstrap.public_api.publishable_key,
+  );
+  return bootstrap;
+}
+
+export async function tenantPublicRequest<T>(
+  slug: string,
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const normalized = slug.trim();
+  let publishableKey = tenantPublishableKeys.get(normalized);
+  if (!publishableKey) {
+    const bootstrap = await bootstrapTenant({ slug: normalized });
+    publishableKey = bootstrap.public_api.publishable_key;
+  }
+  return publicV1Request<T>(path, options, publishableKey);
 }
 
 export function setAccessToken(token: string) {

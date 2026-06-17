@@ -1,4 +1,4 @@
-import { publicV1Request } from "../../lib/api";
+import { publicV1Request, tenantPublicRequest } from "../../lib/api";
 
 export type PrintBucket = {
   id: number;
@@ -56,24 +56,30 @@ export type PrintRequestPayload = {
 };
 
 export function fetchPrintBuckets(slug: string) {
-  return publicV1Request<PrintBucket[]>(`/printing/public/${slug}/buckets`);
+  return tenantPublicRequest<PrintBucket[]>(
+    slug,
+    `/printing/public/${slug}/buckets`,
+  );
 }
 
 export function fetchPublicSpools(slug: string) {
-  return publicV1Request<PublicFilamentSpool[]>(
+  return tenantPublicRequest<PublicFilamentSpool[]>(
+    slug,
     `/printing/public/${slug}/spools`,
   );
 }
 
 export function verifyPrintCheckin(slug: string, identifier: string) {
-  return publicV1Request<{ username: string }>(
+  return tenantPublicRequest<{ username: string }>(
+    slug,
     `/printing/public/${slug}/checkin/verify`,
     { method: "POST", body: JSON.stringify({ identifier }) },
   );
 }
 
 export function presignPrintUpload(slug: string, body: PrintUploadBody) {
-  return publicV1Request<{ file_id: number; upload: PrintUpload }>(
+  return tenantPublicRequest<{ file_id: number; upload: PrintUpload }>(
+    slug,
     `/printing/public/${slug}/uploads`,
     { method: "POST", body: JSON.stringify(body) },
   );
@@ -93,7 +99,8 @@ export async function uploadToStorage(upload: PrintUpload, file: File) {
 }
 
 export function submitPrintRequest(slug: string, payload: PrintRequestPayload) {
-  return publicV1Request<{ public_token: string; status: string }>(
+  return tenantPublicRequest<{ public_token: string; status: string }>(
+    slug,
     `/printing/public/${slug}/requests`,
     { method: "POST", body: JSON.stringify(payload) },
   );
@@ -106,7 +113,8 @@ export function fetchPrintStatus(publicToken: string) {
 }
 
 export function fetchPrintStatusByEmail(slug: string, email: string) {
-  return publicV1Request<{ results: PrintStatus[] }>(
+  return tenantPublicRequest<{ results: PrintStatus[] }>(
+    slug,
     `/printing/public/${slug}/status-by-email`,
     { method: "POST", body: JSON.stringify({ email }) },
   );

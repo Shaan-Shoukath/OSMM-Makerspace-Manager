@@ -1,4 +1,4 @@
-import { apiGet, publicV1Request } from "../../lib/api";
+import { apiGet, publicV1Request, tenantPublicRequest } from "../../lib/api";
 import type {
   CheckinVerifyResponse,
   Makerspace,
@@ -80,7 +80,8 @@ export async function verifyCheckin(
   slug: string,
   identifier: string,
 ): Promise<CheckinVerifyResponse> {
-  return publicV1Request<CheckinVerifyResponse>(
+  return tenantPublicRequest<CheckinVerifyResponse>(
+    slug,
     `/public/${slug}/checkin/verify`,
     {
       method: "POST",
@@ -99,10 +100,14 @@ export async function submitPublicRequest(
     items: { product_id: number; quantity: number }[];
   },
 ): Promise<RequestSubmitResponse> {
-  return publicV1Request<RequestSubmitResponse>(`/public/${slug}/requests`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return tenantPublicRequest<RequestSubmitResponse>(
+    slug,
+    `/public/${slug}/requests`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export async function fetchRequestStatus(
@@ -117,7 +122,8 @@ export async function fetchRequestsByIdentifier(
   slug: string,
   identifier: string,
 ): Promise<PublicRequestStatus[]> {
-  return publicV1Request<PublicRequestStatus[]>(
+  return tenantPublicRequest<PublicRequestStatus[]>(
+    slug,
     `/public/${slug}/requests/status`,
     {
       method: "POST",
@@ -130,18 +136,26 @@ export async function publicToolCheckout(
   slug: string,
   payload: { identifier: string; payload: string },
 ): Promise<PublicToolLoan> {
-  return publicV1Request<PublicToolLoan>(`/public/${slug}/tools/checkout`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return tenantPublicRequest<PublicToolLoan>(
+    slug,
+    `/public/${slug}/tools/checkout`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 export async function publicToolReturn(
   slug: string,
   payload: { identifier: string; payload: string },
 ): Promise<PublicToolLoan> {
-  return publicV1Request<PublicToolLoan>(`/public/${slug}/tools/return`, {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return tenantPublicRequest<PublicToolLoan>(
+    slug,
+    `/public/${slug}/tools/return`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }

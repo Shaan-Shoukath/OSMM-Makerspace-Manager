@@ -1,4 +1,4 @@
-import { publicV1Request } from "../../lib/api";
+import { tenantPublicRequest } from "../../lib/api";
 
 export type PublicToolLoanResult = {
   public_token: string;
@@ -13,7 +13,8 @@ export function checkoutTool(
   identifier: string,
   payload: string,
 ) {
-  return publicV1Request<PublicToolLoanResult>(
+  return tenantPublicRequest<PublicToolLoanResult>(
+    slug,
     `/public/${slug}/tools/checkout`,
     {
       method: "POST",
@@ -23,8 +24,12 @@ export function checkoutTool(
 }
 
 export function returnTool(slug: string, identifier: string, payload: string) {
-  return publicV1Request<PublicToolLoanResult>(`/public/${slug}/tools/return`, {
-    method: "POST",
-    body: JSON.stringify({ identifier, payload }),
-  });
+  return tenantPublicRequest<PublicToolLoanResult>(
+    slug,
+    `/public/${slug}/tools/return`,
+    {
+      method: "POST",
+      body: JSON.stringify({ identifier, payload }),
+    },
+  );
 }
