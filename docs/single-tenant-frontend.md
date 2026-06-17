@@ -29,6 +29,12 @@ The production frontend container writes `/config.js` at startup from:
 - `TENANT_API_URL` - backend API base, for example `https://host.example/api`
 - `TENANT_TOKEN` - `TenantFrontend.token` or makerspace `public_code`
 
+Startup validation rejects unsafe runtime config before writing `/config.js`.
+`TENANT_API_URL` must be a relative `/api` path or an `http(s)` URL.
+`TENANT_TOKEN` may only contain letters, numbers, dot, underscore, colon, and
+dash, up to 256 characters. Control characters, quotes, backslashes, backticks,
+and angle brackets are rejected.
+
 `/config.js` is served with `Cache-Control: no-store`, so changing those env vars
 and restarting the container re-points the site without rebuilding the bundle.
 
