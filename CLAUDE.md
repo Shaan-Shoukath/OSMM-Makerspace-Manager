@@ -2,6 +2,52 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Recent batch — audit-report hardening (5 parallel-Codex phases) + lend attribution (2026-06-17)
+
+Fix batch from a 6-Codex codebase audit (Codex plan-reviewed → APPROVED; 5 file-disjoint phases run
+as parallel Codex agents, Claude-verified per diff; full suite **498 green**; Codex Stage-4 review =
+no actionable issues). One migration (`printing/0010`). Confirmed design decision: the superadmin
+soft-hide stays **soft** (per-makerspace report/ledger/lending **404s** kept) — this batch only made
+it **consistent**; the SOFT→HARD conversion is a separate queued follow-up (`docs/hard-hide-plan.md`,
+not yet built). Commits `a4acab5`,`a95d00f`,`7a8c1ef`,`5cb5e47`,`8f8d7e0`,`9fcc17c` (not pushed).
+
+- **Direct handout via QR no longer requires public flags** (`a4acab5`). `is_public` /
+  `public_self_checkout_enabled` gate ANONYMOUS public kiosk eligibility — wrong for a trusted staff
+  `ISSUE_DIRECT_LOAN`. `self_checkout_helpers` now threads a keyword-only `require_public=True`
+  through `_checkout_target`/`_eligible_product`/`_eligible_asset`/`_checkout_box`; public
+  `checkout_tool` keeps `True` (unchanged), staff `issue_direct_loan` passes `False` (same makerspace
+  + not archived + available only; box hands out ALL available non-archived contents). Closes the
+  "private individual assets have no handout path" gap — staff scan the asset QR. **INDIVIDUAL-tracked
+  products are now rejected on the product-QR path AND the box product-contents fallback** (must scan
+  the per-unit asset QR; preserves serialized-handout traceability) in BOTH public + staff callers.
+  Direct handout also: locks the container `Box` row + wraps `PublicToolLoan.create` in a **nested
+  `transaction.atomic()` savepoint** catching `IntegrityError` OUTSIDE it → clean 409 (the outer txn
+  stays usable); rejects an **inactive** container; only honors `container_id` when the `containers`
+  module is on. `issued_by` ({username, role}) now on the direct-loan serializer + list.
+- **QR rebind hardening** (`a95d00f`). Cross-makerspace rebind now requires **both** the SOURCE
+  `qr.target_type` AND the destination to be PRODUCT (was only blocking an asset *destination* — an
+  asset-origin QR could still cross tenants). The destination-conflict check is `select_for_update`d
+  and the `qr.save()` is wrapped in a savepoint → clean 409 (not a 500 from an aborted txn).
+  `QrRebindTargetView` gained an explicit `IsActiveStaff`. Frontend: the rebind product picker is
+  scoped to the **resolved QR's** makerspace (not the console-selected one), and "Rename & rebind" is
+  hidden unless the user holds MANAGE_QR+EDIT_INVENTORY (space/inventory manager or superadmin).
+- **Manual print log** (`7a8c1ef`). Mirrors the print-start invariant: re-fetches the printer
+  `select_for_update` and rejects `not is_active or status != ACTIVE`; rejects `grams_used <= 0`
+  (service guard + `ManualPrintLog` `CheckConstraint`, migration `0010`); fetches printer/spool
+  **scoped to the makerspace first** (no cross-tenant existence disclosure). Frontend invalidates the
+  printing **report** query on success so report grams aren't stale.
+- **Superadmin soft-hide leak closed** (`5cb5e47`). `ManagedPrintRequestQuerysetMixin` and
+  `NeedsFixShelfListView` now apply `rbac.hide_from_superadmin` when **no** `?makerspace=` filter is
+  given (they previously returned hidden-makerspace rows incl. requester PII). Explicit
+  `?makerspace=<id>` still returns data (the soft escape hatch — the queued hard-hide will close it).
+  Payment totals (`reports._payment_summary`) now `.filter(status__in=COMPLETED_STATUSES)` so a
+  drifted non-terminal row can't inflate paid/outstanding cash.
+- **Lend attribution + deterministic lending history** (`8f8d7e0`). Per-item lending history orders
+  `-request__issued_at, -request__id` (stable on ties) with a stable row `id` for React keys, and
+  exposes `issued_by`/`accepted_by` ({username, role}). `AdminRequestSerializer` exposes the same on
+  the Requests queue. Frontend renders "Accepted by / Issued by" in the lending-history drawer, the
+  Requests/handover queue, and the direct-loans list.
+
 ## Recent batch — direct-handout UX, lending history, manual print log, QR rebind (2026-06-16)
 
 Four features (Codex plan-reviewed v1→v2, then per-phase Codex code review; committed phase-by-phase).
