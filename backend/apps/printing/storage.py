@@ -196,4 +196,12 @@ def print_finalize_upload(object_key, max_bytes):
 
     copy_object(upload_staging_key, object_key)
     delete_object(upload_staging_key)
-    return size
+    # Re-validate the ACTUAL finalized object. The staging key stays client-writable
+    # until its presigned PUT URL expires, so a racing oversized PUT between the size
+    # HEAD above and this copy could promote an oversized object while the small size
+    # was recorded (Codex Stage-4 P2 TOCTOU). The final key is never client-writable,
+    # so its post-copy size is authoritative; reject + delete it if it drifted.
+    final_size = print_object_size(object_key)
+    if final_size is None or not (1 <= final_size <= max_bytes):
+        delete_object(object_key)
+    return final_size

@@ -20,8 +20,10 @@ def test_put_finalize_promotes_valid_staging_upload(
     copied = []
     deleted = []
 
+    # Staging holds 123 bytes; after the copy the final key also reports 123
+    # (no race) — finalize re-HEADs the final object as the authoritative check.
     monkeypatch.setattr(module, "object_exists", lambda key: key == staging_key)
-    monkeypatch.setattr(module, size_name, lambda key: 123 if key == staging_key else None)
+    monkeypatch.setattr(module, size_name, lambda key: 123)
     monkeypatch.setattr(module, "copy_object", lambda source, dest: copied.append((source, dest)))
     monkeypatch.setattr(module, "delete_object", lambda key: deleted.append(key))
 
@@ -30,6 +32,40 @@ def test_put_finalize_promotes_valid_staging_upload(
     assert size == 123
     assert copied == [(staging_key, final_key)]
     assert deleted == [staging_key]
+
+
+@pytest.mark.parametrize(
+    ("module", "finalize_name", "size_name"),
+    [
+        (evidence_storage, "finalize_upload", "object_size"),
+        (printing_storage, "print_finalize_upload", "print_object_size"),
+    ],
+)
+def test_put_finalize_rejects_and_deletes_final_when_staging_raced_oversized(
+    monkeypatch, settings, module, finalize_name, size_name
+):
+    # Codex Stage-4 P2 TOCTOU: staging passes the pre-copy size check (100), but a
+    # racing oversized PUT lands before the copy, so the COPIED final object is 999.
+    # finalize must re-validate the final, reject it, and delete the oversized object.
+    settings.STORAGE_PRESIGN_METHOD = "put"
+    final_key = "evidence/1/issue/object"
+    staging_key = f"staging/{final_key}"
+    copied = []
+    deleted = []
+
+    monkeypatch.setattr(module, "object_exists", lambda key: False)
+    monkeypatch.setattr(module, size_name, lambda key: 100 if key == staging_key else 999)
+    monkeypatch.setattr(module, "copy_object", lambda source, dest: copied.append((source, dest)))
+    monkeypatch.setattr(module, "delete_object", lambda key: deleted.append(key))
+
+    size = getattr(module, finalize_name)(final_key, max_bytes=500)
+
+    # Returns the oversized final size so the caller's range check rejects it,
+    # the staging key is cleaned up, and the oversized final is deleted (not kept).
+    assert size == 999
+    assert copied == [(staging_key, final_key)]
+    assert staging_key in deleted
+    assert final_key in deleted
 
 
 @pytest.mark.parametrize(
