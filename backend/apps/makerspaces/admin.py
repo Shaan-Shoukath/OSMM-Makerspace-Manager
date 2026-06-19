@@ -49,6 +49,8 @@ class MakerspaceAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
         "location",
         "public_inventory_enabled",
         "superadmin_access_enabled",
+        "frontend_domain",
+        "hidden_from_central_directory",
         "frontend_mode",
         "archived",
         "updated_at",
@@ -66,6 +68,8 @@ class MakerspaceAdmin(SuperuserOnlyModelAdmin, ModelAdmin):
                     "slug",
                     "location",
                     "public_inventory_enabled",
+                    "frontend_domain",
+                    "hidden_from_central_directory",
                     "default_loan_days",
                 )
             },

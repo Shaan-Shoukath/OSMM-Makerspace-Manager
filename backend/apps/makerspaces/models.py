@@ -2,6 +2,8 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import models
+from django.db.models import Q
+from django.db.models.functions import Lower
 from django.utils.crypto import get_random_string
 
 from apps.makerspaces.secrets import decrypt_value, encrypt_value
@@ -76,6 +78,13 @@ class Makerspace(models.Model):
     location = models.CharField(max_length=200, blank=True)
     public_inventory_enabled = models.BooleanField(default=True)
     superadmin_access_enabled = models.BooleanField(default=True)
+    frontend_domain = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        unique=True,
+    )
+    hidden_from_central_directory = models.BooleanField(default=False)
     public_api_key = models.CharField(
         max_length=40,
         editable=False,
@@ -126,6 +135,15 @@ class Makerspace(models.Model):
                 fields=["public_api_key"],
                 name="uniq_makerspace_public_api_key",
             ),
+            models.UniqueConstraint(
+                Lower("frontend_domain"),
+                name="uniq_makerspace_frontend_domain_ci",
+            ),
+            models.CheckConstraint(
+                condition=Q(hidden_from_central_directory=False)
+                | Q(frontend_domain__isnull=False),
+                name="ck_makerspace_hidden_requires_domain",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -133,7 +151,18 @@ class Makerspace(models.Model):
 
     def save(self, *args, **kwargs):
         self.public_code = (self.public_code or "").upper()
+        self.frontend_domain = ((self.frontend_domain or "").strip().lower()) or None
         super().save(*args, **kwargs)
+
+    def clean(self):
+        if self.hidden_from_central_directory and not self.frontend_domain:
+            raise ValidationError(
+                {
+                    "hidden_from_central_directory": (
+                        "A frontend domain is required to hide a makerspace from the central directory."
+                    )
+                }
+            )
 
     def set_telegram_bot_token(self, raw):
         self.telegram_bot_token = encrypt_value(raw)

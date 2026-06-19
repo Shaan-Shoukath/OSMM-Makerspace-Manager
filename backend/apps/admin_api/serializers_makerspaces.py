@@ -9,6 +9,12 @@ from apps.makerspaces.models import Makerspace, TenantFrontend
 
 
 class MakerspaceSerializer(serializers.ModelSerializer):
+    frontend_domain = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255,
+    )
     telegram_bot_token = serializers.CharField(
         write_only=True,
         required=False,
@@ -32,6 +38,8 @@ class MakerspaceSerializer(serializers.ModelSerializer):
             "location",
             "public_inventory_enabled",
             "superadmin_access_enabled",
+            "frontend_domain",
+            "hidden_from_central_directory",
             "public_api_key",
             "cors_allowed_origins",
             "enabled_modules",
@@ -74,6 +82,46 @@ class MakerspaceSerializer(serializers.ModelSerializer):
         if value < 1:
             raise serializers.ValidationError("Default loan days must be at least 1.")
         return value
+
+    def validate(self, attrs):
+        if "frontend_domain" in attrs:
+            normalized_domain = (
+                (attrs.get("frontend_domain") or "").strip().lower()
+            ) or None
+            attrs["frontend_domain"] = normalized_domain
+            if normalized_domain is None:
+                attrs["hidden_from_central_directory"] = False
+                return attrs
+
+            queryset = Makerspace.objects.filter(frontend_domain__iexact=normalized_domain)
+            if self.instance is not None:
+                queryset = queryset.exclude(pk=self.instance.pk)
+            if queryset.exists():
+                raise serializers.ValidationError(
+                    {
+                        "frontend_domain": (
+                            "A makerspace with this frontend domain already exists."
+                        )
+                    }
+                )
+
+        effective_domain = attrs.get(
+            "frontend_domain",
+            self.instance.frontend_domain if self.instance is not None else None,
+        )
+        effective_hidden = attrs.get(
+            "hidden_from_central_directory",
+            self.instance.hidden_from_central_directory if self.instance is not None else False,
+        )
+        if effective_hidden and not effective_domain:
+            raise serializers.ValidationError(
+                {
+                    "hidden_from_central_directory": (
+                        "A frontend domain is required to hide a makerspace from the central directory."
+                    )
+                }
+            )
+        return attrs
 
     def update(self, instance, validated_data):
         telegram_bot_token = validated_data.pop("telegram_bot_token", None)
