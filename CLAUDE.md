@@ -2,6 +2,48 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Recent batch — Blueprint UI redesign + item/makerspace imagery (2026-06-20)
+
+Whole-app reskin to the **"Blueprint Creative Lab"** design system (reference checked in at
+`stitch_luminous_minimalist_interface/`) plus public images for inventory items and per-makerspace
+logo/cover. Codex Stage-1 plan-reviewed APPROVED (2 rounds); built phase-by-phase, committed on green;
+backend suite 646 green. Plan (gitignored): `docs/superpowers/specs/2026-06-20-blueprint-ui-redesign-plan.md`.
+
+- **Design foundation (frontend).** Self-hosted fonts in `frontend/public/fonts/` (**Clash Display**
+  headings, **Instrument Sans** body, **JetBrains Mono** technical labels) via `@font-face` — no CDN/CSP
+  dependency. `index.css` remaps the existing `--color-*` CSS-var tokens to the Blueprint palette
+  (electric-orange `#a73a00`/`#ff5c00` primary, blueprint-blue `#0042c7` secondary, carbon borders) for
+  **light** + an upgraded **dark** "night workshop", and reskins the shared `desk-*` component classes +
+  `components/ui` (`Card`=desk-panel, `Badge` mono/solid) — so most of the staff console reskins
+  centrally. Brutalist utilities: `.blueprint-bg` (32px grid, toggle via `GridToggle` → `data-grid` on
+  `<html>`), `.brutal-border`, `.brutal-hover`, `.chip`/`.chip-available`/`.chip-active`; tailwind config
+  adds `font-display/sans/mono`, `shadow-brutal*` (hard offset "sticker" block, theme-driven
+  `--shadow-color`), and a soft `borderRadius` scale.
+- **Public images (backend).** `InventoryProduct.image_key` + `Makerspace.logo_key`/`cover_image_key`
+  (migrations inventory `0009`, makerspaces `0019`). New **separate public-read bucket**
+  (`PUBLIC_IMAGE_BUCKET`, default `public-images`) — NOT the private evidence bucket — served via
+  `PUBLIC_IMAGE_BASE_URL` (kept separate from the `AWS_S3_PUBLIC_ENDPOINT_URL` signing host).
+  `apps/inventory/public_image_storage.py` mirrors evidence storage on the public bucket: presign follows
+  the `STORAGE_PRESIGN_METHOD` POST/PUT split, TOCTOU-safe finalize (staging→copy→post-copy-revalidate),
+  MIME **and** filename-extension validation. Endpoints (admin_api, `scope_by_action`/`require_action`,
+  404-before-403, audited): `POST/PUT/DELETE /admin/inventory/<pk>/image` (EDIT_INVENTORY),
+  `…/makerspace/<id>/logo` + `/cover` (MANAGE_MAKERSPACE). Public allowlist exposes only computed
+  `image_url`/`logo_url`/`cover_image_url` (never raw keys; logo falls back to `theme_config.logo_url`).
+  Bootstrap + `PublicMakerspaceSerializer` carry the urls. Purge (`lifecycle.py`) collects+deletes the new
+  public objects. MinIO compose bootstraps the public bucket (`mc anonymous set download`). Tests:
+  `tests/test_public_images.py`.
+- **Public UI.** Image-led `ProductCard` (status chip overlay, blueprint placeholder when no photo),
+  image-hero item detail, bento **makerspace directory** (cover + logo) on the central `LandingPage`. New
+  `components/MakerspaceBrand.tsx` renders the uploaded logo, else the makerspace **name** as a Clash
+  wordmark — used on every makerspace-branded surface. Print-request + login/reset inherit the foundation
+  restyle.
+- **Staff console.** The flat 20-tab nav is grouped into **5 collapsible sections** (Operate · Inventory ·
+  3D Printing · Insights · Admin; Admin collapsed by default) with a per-role default landing tab —
+  **permissions unchanged**, empty sections hidden (`StaffApp.tsx` `TAB_GROUPS`/`TAB_LABELS`). Blueprint
+  sidebar/header. Reusable `features/staff/ImageUploader.tsx` (presign → upload via returned POST/PUT →
+  finalize, + remove) wired into the Inventory edit modal (+ table thumbnail) and a new **Branding**
+  section in `MakerspaceSettingsPanel` (logo + cover). Self-hosted-fonts artifact preview reflects the look.
+
 ## Recent batch — ledger specific-unit + staff-return evidence (2026-06-20)
 
 Three staff-console features (Codex Stage-1 plan-reviewed APPROVED; Stage-4 review clean after 4
