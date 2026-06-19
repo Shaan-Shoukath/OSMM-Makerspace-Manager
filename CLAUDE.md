@@ -2,6 +2,43 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Recent batch — one domain per makerspace (replaces TenantFrontend registry) (2026-06-19)
+
+Replaced the per-type `TenantFrontend` frontend registry (7-type dropdown, per-page rows) with a
+single **`Makerspace.frontend_domain`** field — "one domain per makerspace, serving all routes."
+Codex Stage-1 plan-reviewed (APPROVED after 3 rounds; PRD `docs/prd-single-domain-per-makerspace.md`,
+local/gitignored). Built phase-by-phase (commit + full-suite green per phase). Two migrations
+(`makerspaces/0015` add fields, `0016` data-migrate hosts, `0017` delete model).
+
+- **Model.** `Makerspace.frontend_domain` (nullable, **case-insensitively unique** via
+  `UniqueConstraint(Lower(...))`; `save()` normalizes blank→None + lowercases) + a
+  `hidden_from_central_directory` bool with a **DB `CheckConstraint`** (hidden ⇒ domain set) and
+  `clean()`. **`TenantFrontend` model + its `/admin/.../frontends` REST endpoints + Django admin are
+  DELETED.** Set domain → branded 1:1 site at that domain (all routes: `/`, item/print/checkout,
+  `/admin`, `/guest-admin`, `/scanner`); blank → central portal (`/m/<slug>` + shared `/admin`)
+  unchanged. Soft-hide drops the space from the central directory (`PublicMakerspaceListView`) only;
+  `/m/<slug>` deep link still resolves.
+- **Two origin helpers (`platform.py`), staff strict vs public broad.**
+  `makerspace_staff_origins` = ONLY `https://<frontend_domain>` (exact, https-only) — feeds
+  `staff_origin_is_registered` (refresh/logout CSRF) + `staff_origin_scope` (the origin→tenant
+  guard) + `auth_cookies` staff CSRF. `makerspace_public_origins` = that ∪ `cors_allowed_origins` —
+  feeds general CORS (`origin_is_registered`) + `FrontendHMACMiddleware` publishable-key validation.
+  So an origin only in `cors_allowed_origins` (API-client/public) can make publishable-key calls but
+  **can never mint/scope a staff session**. `resolve_frontend`/`bootstrap_payload` now operate on
+  `Makerspace` (tenant=`public_code`, origin→`frontend_domain`, or slug); payload shape unchanged
+  (`frontend.type` is the constant `"makerspace"`).
+- **Isolation (corrected vs the prior "UI-only" claim).** The shipped `origin_scope.py` guard
+  hard-scopes a **browser** staff request to its domain's makerspace (acting on another → 403),
+  re-pointed here to `frontend_domain`. Origin-less (server-to-server) requests fall back to
+  `MakerspaceMembership` (still the underlying authority).
+- **Single-tenant frontend (already shipped) reconciliation.** `config.js` still carries
+  `tenantToken` (mode detection in `frontend/src/lib/tenant.tsx` unchanged) — its value is now the
+  makerspace **`public_code`**, not the deleted `TenantFrontend.token`. Bootstrap-by-origin is an
+  additive fallback. The staff console's old "Frontends" tab/panel is removed; the **Custom domain**
+  field now lives in `MakerspaceSettingsPanel` (domain input + hide checkbox + URL hint, via the
+  makerspace PATCH). OpenAPI snapshot + generated TS client regenerated. Runbooks
+  `docs/single-tenant-frontend.md` + `docs/self-hosting.md` updated.
+
 ## Recent batch — single-tenant branded frontend (2026-06-17)
 
 Implements the "bring-your-own-site" frontend mode from

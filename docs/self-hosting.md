@@ -210,17 +210,20 @@ Restore order is database first, then object files. Stop the stack, restore the 
 
 One backend can serve **many makerspaces**. A makerspace without its own server can be hosted as an
 additional tenant on another makerspace's instance â€” each tenant gets its own makerspace record,
-public URL/slug, branding, and (optionally) its own frontend origin, all isolated by makerspace
-scoping. Register a frontend per tenant so CORS and bootstrap resolve correctly.
+public URL/slug, branding, and (optionally) its own branded domain, all isolated by makerspace
+scoping. To give a tenant its own branded site, set its **Custom domain**
+(`Makerspace.frontend_domain`) in the staff console Settings tab; that single field drives CORS,
+bootstrap resolution, and the staff-auth allowlist. See `docs/single-tenant-frontend.md`.
 
 Browser frontends must use publishable configuration only. Do not place HMAC secrets in JavaScript bundles.
 
-Use `GET /api/v1/bootstrap?tenant=<tenant-token-or-public-code>` or `GET /api/v1/bootstrap?slug=<makerspace-slug>` to load:
+Use `GET /api/v1/bootstrap?tenant=<public-code>` or `GET /api/v1/bootstrap?slug=<makerspace-slug>`
+(or simply serve the branded site from its `frontend_domain`, which bootstrap resolves by origin) to load:
 
 - makerspace identity
-- frontend type
 - enabled modules and workflows
 - theme and branding
 - publishable public API hints
 
-Registered tenant frontend origins and makerspace CORS origins are used for per-tenant browser access.
+A makerspace's `frontend_domain` and its `cors_allowed_origins` (API-client origins) are used for
+per-tenant browser access; only the `frontend_domain` origin may hold a staff session.
